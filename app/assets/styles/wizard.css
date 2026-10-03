@@ -1,0 +1,712 @@
+/* ===========================================================================
+ * 布局层：选择页的外壳（一屏高 + 自滚内容 + 底部吸附区）与所有引导期专用控件样式。
+ *
+ * 这个文件整体属于「引导期资产」—— 初始化时随选择页一起删除。
+ * 因为它在 app/pages/setup/index.vue 里被 import（而不是写进 nuxt.config.ts
+ * 的全局 css 数组），删页面时样式引用会一起消失，不需要额外改配置。
+ *
+ * 纪律：
+ *   ① 不用 !important
+ *   ② 不在组件里写行内 style 表达布局（行内样式无法被样式方案接管）
+ *   ③ 不进全局 css 数组
+ * =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 外壳：固定一屏高，滚动收进 .wizard__body
+ *
+ * 底部吸附区为什么不用那两条老路：
+ *   position:fixed —— 吸附区脱离文档流，页面必须预留一段「它有多高」的空白。而它有多高
+ *     取决于状态文案会不会换行，估算值迟早对不上；对不上的那一档就会盖住卡片。
+ *   position:sticky —— 它仍然占着文档流末尾的位置、只是**渲染**时被顶起来，于是滚动到中段
+ *     照样压住内容；何况栅格子项的移动范围被自己那一格框住（那格就只有它自己高），压根不动。
+ * 所以：外壳正好一屏高，内容自己滚，吸附区是外壳里的一个普通 flex 子项 ——
+ * 它有多高就是多高，永远贴底，也永远不盖住任何东西。
+ * ------------------------------------------------------------------------- */
+.wizard {
+  display: flex;
+  flex-direction: column;
+  max-width: 1240px;
+  margin: 0 auto;
+  height: 100vh;
+  /* dvh 让移动端浏览器地址栏收起/展开时高度跟着变；不支持的浏览器吃上面那行 vh。 */
+  height: 100dvh;
+}
+
+/* 滚动区：页首与两栏。轨道滚动条落在这一层，宽度也由它决定。
+   min-height: 0 是 flex 子项能滚的前提 —— 默认的 min-height:auto 会让它被内容撑破，
+   整页跟着滚起来，吸附区就又被推下去了（这一步漏掉的话，「固定」是静默失效的）。 */
+.wizard__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  display: grid;
+  /* 两侧接近等分：单选按钮组改成横向之后，左右都在「一行里数候选」，
+     宽度需求不再有量级差；左栏略多留一点（1.15 : 1）是因为 UI 框架那组有 5 个候选。 */
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+  padding: var(--sp-8) var(--sp-4);
+}
+
+/* 底部吸附区：冲突提示 + 操作条。它是 .wizard 的 flex 子项、且 flex:none ——
+   被压缩的只会是上面的滚动区（它自己带 min-height: 0），吸附区不参与收缩。
+   padding-inline 与 .wizard__body 取同一个值，两边的内容才对得齐；
+   flex:none 也意味着行数变化只影响它自己的高度，不会盖住任何东西。 */
+.wizard__dock {
+  flex: none;
+  display: grid;
+  gap: var(--sp-3);
+  /* 冲突多时给它自己滚，而不是把上面的两栏挤没 */
+  max-height: 45dvh;
+  overflow-y: auto;
+  padding: 0 var(--sp-4) var(--sp-6);
+}
+
+/* 页首：整个选择页只剩这一处说明文字（各分组的说明已撤掉），所以给它一块「底板」，
+   而不是让它散在标题下面。左侧品牌色竖条与栏目标题、分组卡片是同一条线索。 */
+.wizard__head {
+  grid-column: 1 / -1;
+  padding: var(--sp-4) var(--sp-6);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-500);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+
+/* 跨满整行的块：骨架态与接管页面的进度面板 */
+.wizard__full {
+  grid-column: 1 / -1;
+}
+
+.wizard__head h1 {
+  margin-bottom: var(--sp-2);
+}
+
+.wizard__head p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 两栏的纵向节奏。左栏的容器是 .wizard__col，右栏是 NuxtConfigPanel 里的 .wizard__stack ——
+   **分组之间的间距只由这两处的 gap 决定**。别在 .group 上再挂 margin-top：
+   那样左栏会「gap + margin」叠成两份，右栏只有一份，两栏间距对不上。 */
+.wizard__col,
+.wizard__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/* 栏目标题（技术栈 / Nuxt 配置）：左侧一段品牌色短竖条，
+   和页首、每张卡片用的是同一个视觉信号，层级靠同一条线索读出来。 */
+.wizard__col > h2,
+.wizard__stack > h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+}
+
+.wizard__col > h2::before,
+.wizard__stack > h2::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 1.05em;
+  border-radius: 999px;
+  background: var(--brand-500);
+}
+
+.wizard__footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  /* 一条分隔线把它和上面的卡片堆分开：底部操作条不属于任何一栏，
+     没有这条线时它看起来像右栏的最后一张卡片。 */
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+
+.wizard__footer-status {
+  margin-right: auto;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 运行中：整个表单置灰不可编辑，交互交给进度面板 */
+.wizard.is-running .wizard__col {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+@media (max-width: 860px) {
+  .wizard {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 分组卡片
+ *
+ * 每个分组都是一张卡片：1px 边框 + 左侧 3px 品牌色竖条 + 大圆角 + 极浅投影。
+ * 两种形态共用同一套「卡片语言」，差别只在标题从哪来：
+ *   单选组 —— fieldset 自己就是卡片（.group--card），<legend> 骑在上边框上当标题；
+ *   多选面板 —— 卡片由 .panel 充当（面板头右侧要挂「新增」），fieldset 退成无框容器。
+ *
+ * 分组说明（group.desc）已从页面上撤掉，所以这里没有 .group__desc 这条规则 ——
+ * 页面唯一保留的说明在页首。
+ * ------------------------------------------------------------------------- */
+.group--card {
+  /* 上内边距特意比下/左右大：<legend> 骑在上边框时是**向下**压进内边距的，
+     给 16px 的话标题会贴住第一行候选按钮，24px 才留出呼吸。 */
+  padding: var(--sp-6) var(--sp-4) var(--sp-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-500);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
+}
+
+/* 标题胶囊：底色把卡片的上边框盖掉一截，看起来就像「贴」在卡片边缘上。
+   左内边距来自 .group--card 的 padding，正好避开左上角的圆角。 */
+.group--card > legend {
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* 多选面板形态：卡片画在 .panel 上，这层容器只承担分组语义，不能再描一遍边框 */
+.group--panel {
+  min-width: 0;
+}
+
+/* 横向单选按钮组（左右两栏的单选组都用它）。
+ *
+ * 形态：每个候选一个带边框的小块，整组左右排开，一行放不下才换行。
+ * 为什么是横向：组内是**互斥**关系，横向排布正好呼应「从这几个里挑一个」；
+ * 而且候选彼此相邻时，名字长度、有没有「实验性」标记都是一眼可比的，
+ * 竖排一列反而要上下移动视线。说明与「会装什么」收进元素的 title（悬停可见）——
+ * 信息没删，只是从「一直占着版面」改成「需要时才展开」。
+ * 选中态靠 :has() 驱动（不用 :checked ~ 是为了让 DOM 顺序保持自然）。
+ */
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* 用浅底而不是与卡片同色：卡片本身就是白底，同色的话这些小块看起来只是「画了几条框」；
+     浅底让它们成为一个个有实体的芯片，选中态（品牌浅底）也更容易跳出来。 */
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.radio:hover {
+  border-color: var(--brand-600);
+  background: var(--bg);
+}
+
+.radio input {
+  margin: 0;
+  accent-color: var(--brand-600);
+}
+
+.radio__label {
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.radio__flag {
+  padding: 0 6px;
+  border: 1px solid var(--warn);
+  border-radius: 999px;
+  color: var(--warn);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 选中：边框 + 底色 + 标签加粗变色。单选钮本身很小，只靠它一个信号时，
+   一行里很难一眼看到当前项 —— 所以「整块」也要变。 */
+.radio:has(input:checked) {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+}
+
+.radio:has(input:checked) .radio__label {
+  color: var(--brand-700);
+  font-weight: 600;
+}
+
+.radio.is-blocked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.radio.is-blocked:hover {
+  border-color: var(--border);
+}
+
+/* ---------------------------------------------------------------------------
+ * 多选面板（模块、工程开关）：右上角「新增」+ 下方可滑动列表
+ *
+ * 为什么不再把全部候选摊成复选行：这两组是「按需追加」，多数候选长期处于未选中状态，
+ * 把它们的说明一直挂在版面上，换来的是「每次都要滚过一段与自己无关的文字」。
+ * 面板只陈列**已加入的项**，候选与细节放进「新增」弹窗 —— 需要时才展开。
+ *
+ * 面板自己就是一张卡片：边框 / 圆角 / 投影 / 左侧竖条与 .group--card 完全一致。
+ * 这两组没有 <legend>（标题在面板头里，右侧要挂「新增」），所以卡片画在这一层。
+ * ------------------------------------------------------------------------- */
+.panel {
+  /* 已加入项列表的固定高度。两个多选面板（模块 / 工程开关）共用它 ——
+     于是「选了几个」不会再影响页面高度，两块面板也永远一般高。 */
+  --panel-list-h: 200px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-500);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
+  overflow: hidden; /* 让列表的滚动条贴着圆角裁掉 */
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.panel__count {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel__add {
+  margin-left: auto;
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--text-sm);
+}
+
+/* 高度**写死**（而不是只给上限）+ 自己滚，是这个形态的核心：
+ *   ① 完全不给高度，选满 6 个模块照样会把右栏撑长 —— 那正是要摆脱的样子；
+ *   ② 只给上限，列表会在「两个空位」到 200px 之间随选择项数伸缩，把下面的面板推上推下，
+ *      两个多选面板也没法对齐 —— 而它们并排站在同一栏里，参差不齐非常显眼。
+ * 高度统一由 .panel 上的 --panel-list-h 给出，所以两块永远等高。 */
+.panel__list {
+  display: flex;
+  flex-direction: column;
+  height: var(--panel-list-h);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+
+.panel__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 固定高度的列表里条目不许被压扁：装不下就滚，别把行高挤成一条缝 */
+  flex: none;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--text-sm);
+}
+
+.panel__item + .panel__item {
+  border-top: 1px solid var(--border);
+}
+
+.panel__item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.panel__remove {
+  padding: 0 var(--sp-2);
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.panel__remove:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 空态：高度写死之后，一行的提示语贴着顶边会像「下面还有内容没加载出来」，
+   所以在盒子里垂直居中（margin 的 auto 在 flex 列容器上就是干这个的）。 */
+.panel__empty {
+  flex: none;
+  margin: auto 0;
+  padding: var(--sp-4) var(--sp-3);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * 三层规则提示：block 红 / warn 黄 / info 灰
+ * ------------------------------------------------------------------------- */
+.hint-list {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.hint {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+
+.hint--block {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.hint--warn {
+  border-color: var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.hint--info {
+  border-color: var(--info);
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+/* ---------------------------------------------------------------------------
+ * 弹窗：预览变更 / 新增选择
+ *
+ * 用原生 <dialog>：焦点陷阱、Esc 关闭、遮罩、背景惰性化全由浏览器负责，
+ * 零依赖也能拿到一套正确的模态行为。
+ *
+ * 唯一必须小心的是 —— **不要在 .modal 上写 display**：UA 给未打开的 dialog 是
+ * display:none，一旦覆盖（比如写 display:flex），关掉的弹窗会一直留在页面上。
+ * 所以布局只写在 [open] 上。
+ * ------------------------------------------------------------------------- */
+.modal {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  max-width: none;
+  max-height: none;
+}
+
+.modal[open] {
+  display: block;
+}
+
+.modal::backdrop {
+  background: rgb(15 23 42 / 45%);
+}
+
+/* 弹窗打开时锁住页面滚动（原生 dialog 不做这件事） */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+/* 面板铺满 dialog 的盒子（见上：dialog 自身没有 padding 与 border），
+   于是「点击事件的目标是 dialog 自己」只可能发生在遮罩上 —— 点遮罩关闭靠这条。 */
+.modal__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - var(--sp-8)));
+  max-height: min(84vh, 720px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 24px 60px rgb(15 23 42 / 28%);
+  overflow: hidden;
+}
+
+/* 预览弹窗要放 7 个清单，宽一些 */
+.modal--wide .modal__panel {
+  width: min(880px, calc(100vw - var(--sp-8)));
+}
+
+.modal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.modal__close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: var(--text-base);
+  line-height: 1;
+}
+
+.modal__close:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+
+/* 滚动条挂在 body 上，头尾保持可见 */
+.modal__body {
+  padding: var(--sp-4);
+  overflow: auto;
+}
+
+.modal__lead {
+  margin: 0 0 var(--sp-3);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.modal__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.modal__note {
+  margin-right: auto;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 弹窗里的候选项：名称一行，说明与「会装什么」另起。
+   弹窗里空间足够，不必像页面上的横向单选那样把说明收进 title。 */
+.pick {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.pick:hover {
+  background: var(--bg-subtle);
+}
+
+/* grid-row 的跨度要盖住右侧所有行，否则说明文字会被自动排放到第一列去；
+   align-self 保证复选框不被拉伸到整个跨度的高度。 */
+.pick input {
+  grid-row: 1 / span 6;
+  align-self: start;
+  margin-top: var(--sp-1);
+  accent-color: var(--brand-600);
+}
+
+.pick .desc {
+  grid-column: 2;
+  display: block;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.pick.is-checked {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+}
+
+.pick.is-blocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.desc--warn {
+  color: var(--warn);
+}
+
+/* ---------------------------------------------------------------------------
+ * 折叠块与计划清单
+ *
+ * `.preview` 是**可折叠容器**本身（进度面板用它包住日志），
+ * `.preview__*` 是内容排布 —— 预览变更弹窗与进度面板共用这一套，别改名。
+ * ------------------------------------------------------------------------- */
+.preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  background: var(--bg-subtle);
+}
+
+.preview > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* 计划清单：依赖 / 文件 / 配置区间。
+   滚动交给外层（弹窗的 .modal__body），这里不再自己封顶 ——
+   否则会出现「弹窗能滚 + 内层也能滚」的两条滚动条。 */
+.preview__grid {
+  display: grid;
+  /* 每列至少 320px：删除清单里是完整相对路径（最长的近 60 字符），
+     220px 那种窄列会把它挤出可视区，只能横向滚。 */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--sp-3);
+}
+
+.preview__grid h3 {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  margin-bottom: var(--sp-1);
+}
+
+.preview__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  /* 包名与文件路径没有空格可断，默认只会在斜杠处换行；
+     anywhere 让长路径在列内折行，而不是把弹窗顶出横向滚动条。 */
+  overflow-wrap: anywhere;
+}
+
+.preview__empty {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------------------
+ * 进度面板
+ * ------------------------------------------------------------------------- */
+.progress {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-4);
+}
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  padding: 0;
+  list-style: none;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.steps li.is-active {
+  border-color: var(--brand-600);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.steps li.is-done {
+  border-color: var(--brand-500);
+  background: var(--brand-50);
+  color: var(--fg);
+}
+
+.log {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.log__line {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log__line--error {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * 骨架态与摘要
+ * ------------------------------------------------------------------------- */
+.skeleton {
+  padding: var(--sp-6);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.summary {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.stack-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.stack-kv dt {
+  color: var(--fg-muted);
+}
+
+.stack-kv dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
