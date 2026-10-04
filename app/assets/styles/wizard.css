@@ -139,6 +139,21 @@
   font-size: var(--text-sm);
 }
 
+/* 初始化成功后那一个「进入后台管理系统」——它是这一页真正的出口，
+   所以用品牌色实心按钮，而不是与「中断进度流」同级的次级按钮。 */
+.wizard__primary {
+  border-color: transparent;
+  background: var(--brand-500);
+  color: #fff;
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .wizard__primary:hover {
+    background: var(--brand-600, var(--brand-500));
+  }
+}
+
 /* 运行中：整个表单置灰不可编辑，交互交给进度面板 */
 .wizard.is-running .wizard__col {
   opacity: 0.55;

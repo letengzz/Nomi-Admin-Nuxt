@@ -32,10 +32,18 @@ export function useNotify() {
       description: e?.code ? `错误码 ${e.code}` : undefined,
     })
   }
-  /** 视图层取走消息并落地；取走即清空，避免同一条消息被弹两次 */
+  /**
+   * 视图层取走消息并落地。
+   *
+   * **只有非空时才清空**。这不是省一次赋值：五档视图层都是
+   * `watch(() => notify.queue.value, () => notify.take())` —— 无条件 `queue.value = []`
+   * 会在「本来就没有消息」时也换一次引用，于是这个 watch 自己触发自己，
+   * 控制台刷出 `Maximum recursive updates exceeded`，而 **SSR 完全正常**
+   * （服务端不跑水合后的 watch）。症状是「服务端渲染好好的，一到浏览器整页炸」。
+   */
   function take(): NotifyMessage[] {
     const all = queue.value
-    queue.value = []
+    if (all.length) queue.value = []
     return all
   }
 

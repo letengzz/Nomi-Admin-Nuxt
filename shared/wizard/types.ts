@@ -117,6 +117,11 @@ export interface InitPlan {
   allowBuilds: string[];
   /** 需要从 package.json 移除的引导期依赖（当前为空集） */
   removeDeps: string[];
+  /**
+   * 第 5 阶段将叠加的后台骨架摘要（`--skip-admin` 时为 undefined）。
+   * 放在计划里是为了让「预览」与「真跑」说的是同一件事。
+   */
+  admin?: string | null;
   conflicts: Conflict[];
 }
 

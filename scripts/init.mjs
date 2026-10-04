@@ -16,9 +16,11 @@
  *   可回滚    阶段 2 的快照能还原到「初始化前」。
  *   只动标记区 配置文件只在 marker 区间内替换，手写区逐字节不动。
  *
- * 五阶段：plan → snapshot → install → apply → verify
+ * 六阶段：plan → snapshot → install → apply → admin → verify
  * （**先装依赖，再改写配置**。反过来的话，运行中的 dev 服务会在「配置已声明模块、
  *   模块还不在 node_modules」的窗口里重启并报 NUXT_B8017。详见 STAGE_NAMES 上的注释。）
+ * （**后台骨架排在 verify 之前**：这一段产出的 `app/layouts` `app/pages` 也要被那 12 项
+ *   断言盯住；排在 verify 之后的话，第 8 项「首页已替换」验到的就不是最终产物了。）
  *
  * CLI：
  *   node scripts/init.mjs --selection ./s.json --dry-run     只打印计划
@@ -27,7 +29,7 @@
  *   node scripts/init.mjs --template-config ./template.config.json   从快照重放
  *   node scripts/init.mjs --rollback                         恢复到最近一次快照
  *   附加：--json-lines（每行一条 JSON 事件）、--save-plan、--force-experimental、
- *         --skip-install、--fast、--root <dir>
+ *         --skip-install、--skip-admin、--fast、--root <dir>
  *
  * 自测友好性：本文件导出 runCli(argv)，返回退出码而**不自己 process.exit**，
  * 这样 scripts/selftest.mjs 可以在同一个进程里直接 import 并驱动它。
@@ -63,6 +65,15 @@ import {
   rewriteSection,
 } from '../shared/wizard/sections.mjs';
 import { KEEP_FILES, PRUNE_DIRS, WIZARD_FILES, isKeptPath } from '../shared/wizard/whitelist.mjs';
+import {
+  RECORD_FILE as ADMIN_RECORD_FILE,
+  ADMIN_SNAPSHOT_SUFFIX,
+  applyAdmin,
+  planAdmin,
+  planSummary as adminPlanSummary,
+  verifyAdmin,
+  writeAdminRecord,
+} from './lib/admin-layer.mjs';
 import { runCommand } from './lib/proc.mjs';
 import { runVerify } from './verify.mjs';
 
@@ -83,7 +94,7 @@ const SCHEMA_VERSION = '1.0.0';
 const TEMPLATE_VERSION = '0.1.0';
 
 /**
- * 五阶段。**「安装依赖」必须排在「改写与自举」之前**，这不是审美问题：
+ * 六阶段。**「安装依赖」必须排在「改写与自举」之前**，这不是审美问题：
  *
  * `apply` 会把选中的模块写进 `nuxt.config.ts` 的 `modules: [...]`，而引导页本身就跑在
  * `nuxt dev` 里 —— 配置一变，dev 服务立刻重启去加载这些模块。如果那一刻它们还没装，
@@ -95,9 +106,16 @@ const TEMPLATE_VERSION = '0.1.0';
  *
  * 顺序的**唯一**代价是 `pnpm-workspace.yaml` 的 allowBuilds 得提前落盘（见 writeAllowBuilds）：
  * pnpm 在安装那一刻就按它决定跑不跑依赖的构建脚本，事后补写没用。
+ *
+ * **第 5 阶段「叠加后台骨架」是本模板相对通用模板的那一处增量**：它按用户刚选的 UI 档位
+ * 把 `overlay/` 与 `skeleton/<ui>/` 叠进产物。排在 verify **之前**是为了让那 12 项断言
+ * 验的是最终产物（第 8 项「首页已替换」尤其如此）；排在 apply **之后**是因为它要读
+ * `template.config.json`，而那份配置由 apply 的收尾写出。
+ * 它不引入任何依赖，所以没有配套的 install —— 依赖一律由第 3 阶段负责，
+ * 「配置声明了模块、模块还没装」的危险窗口因此不会在第二阶段重新出现。
  */
-const STAGE_NAMES = ['计算计划', '备份快照', '安装依赖', '改写与自举', '校验产物'];
-const STAGE_KEYS = ['plan', 'snapshot', 'install', 'apply', 'verify'];
+const STAGE_NAMES = ['计算计划', '备份快照', '安装依赖', '改写与自举', '叠加后台骨架', '校验产物'];
+const STAGE_KEYS = ['plan', 'snapshot', 'install', 'apply', 'admin', 'verify'];
 
 /* ------------------------------------------------------------------ *
  * 参数解析
@@ -117,6 +135,7 @@ const BOOLEAN_FLAGS = {
   '--rollback': 'rollback',
   '--force-experimental': 'forceExperimental',
   '--skip-install': 'skipInstall',
+  '--skip-admin': 'skipAdmin',
   '--fast': 'fast',
 };
 
@@ -132,6 +151,7 @@ export function parseArgs(argv) {
     rollback: false,
     forceExperimental: false,
     skipInstall: false,
+    skipAdmin: false,
     fast: false,
     help: false,
   };
@@ -232,6 +252,7 @@ function humanizePlan(plan) {
   lines.push(`将生成    : ${plan.generatedFiles.length} 个文件`);
   lines.push(`将覆盖    : ${(plan.baselineTargets ?? []).join(', ')}`);
   lines.push(`marker 区间: ${plan.sections.join(', ')}`);
+  if (plan.admin) lines.push(`后台骨架  : ${plan.admin}`);
   for (const file of plan.deleteFiles) lines.push(`  删除  ${file}`);
   for (const file of plan.generatedFiles) lines.push(`  生成  ${file}`);
   return lines.join('\n');
@@ -468,8 +489,21 @@ function resolvePlan(root, args) {
  *
  * @returns {string[]} 问题列表，空数组表示可以继续
  */
-function preflightTemplates(root, ctx) {
+function preflightTemplates(root, ctx, args) {
   const problems = [];
+
+  // 后台骨架的源目录也要在动手之前确认存在。
+  // 理由与覆盖区/生成区完全一样：`overlay/` 少一个文件、`skeleton/<ui>/` 整个没建，
+  // 都该在「还没删引导器」的时候就报出来。等到第 5 阶段才发现，用户手上已经是一个
+  // 删干净了引导器、却没叠上后台的仓库 —— 那正是最难解释的一种半成品。
+  if (!args?.skipAdmin) {
+    const ui = ctx.plan.selection?.ui;
+    for (const rel of ['overlay/app', 'overlay/server', `skeleton/${ui}`]) {
+      if (!existsSync(resolve(root, rel))) {
+        problems.push(`后台骨架源目录缺少 ${rel}（ui=${ui}）：第 5 阶段会叠加它`);
+      }
+    }
+  }
 
   for (const rel of BASELINE_TARGETS) {
     const tpl = baselineTemplatePath(rel);
@@ -1132,6 +1166,10 @@ function runRollback(root, out) {
 
   const stamps = readdirSync(base)
     .filter((name) => {
+      // 后台骨架层的快照（`…-admin`）不属于引擎：它只记「本层覆盖了哪几个文件」，
+      // 拿它回滚会得到一个只恢复了两个文件的仓库。两个工具共用 .init-backup/，
+      // 所以这里必须按后缀把它们排掉（理由详见 scripts/lib/admin-layer.mjs）。
+      if (name.endsWith(ADMIN_SNAPSHOT_SUFFIX)) return false;
       try {
         return statSync(resolve(base, name)).isDirectory();
       } catch {
@@ -1220,6 +1258,130 @@ function runRollback(root, out) {
   return failures.length ? 1 : 0;
 }
 
+/**
+ * 阶段 5：叠加后台骨架。
+ *
+ * 这一段是**本模板相对通用模板的唯一增量**：把 `overlay/`（公共逻辑层 + 演示接口）
+ * 与 `skeleton/<ui>/`（用户刚选的那一档视图层）叠加进产物，然后写 `admin.config.json`。
+ *
+ * 为什么放在引擎里而不是留给用户跑第二条命令：
+ * 「初始化完了，但你还要记得再跑一个脚本」这件事本身就是缺陷 —— 忘了跑的人会得到一个
+ * 干净的 Nuxt 基线，而且完全不知道自己少了什么（引导器已自删，仓库里没有任何提示）。
+ * 一次点击的产物，就该是一次点击能得到的东西。
+ *
+ * 与第 3 阶段的 `install` 无关：这一段不引入任何依赖，所以没有配套安装，
+ * 也就没有「配置声明了模块、模块还没装」的危险窗口。
+ */
+function adminStage(root, ctx, args, failures, out, runBackupDir) {
+  const ui = ctx.plan.selection.ui;
+
+  let planned;
+  try {
+    // ui 显式传入，不去读 template.config.json —— 它刚刚由 apply 的收尾写出，
+    // 而「第 5 阶段用哪一档」这件事在内存里已经是确定的事实，再读一次盘只会多一个分叉点。
+    planned = planAdmin(root, { ui, upstreamUi: ui });
+  }
+  catch (err) {
+    failures.push(`后台骨架计划失败：${err.message}`);
+    return;
+  }
+
+  out.emit({
+    type: 'log',
+    level: 'info',
+    line: `后台骨架 ${adminPlanSummary(planned)}：写入 ${planned.willWrite.length} 个（覆盖 ${planned.overwritten.length} 个、跳过 ${planned.skipped.length} 个未变）`,
+  });
+
+  // 引擎里**故意不单独快照**：这一层「将被覆盖」的只有 `app/app.vue` 与
+  // `app/pages/index.vue`，而两个都是第 4 阶段的覆盖基线，**本来就躺在引擎快照里**。
+  // 再来一份 `-admin` 快照不只是冗余 —— 它会让 `--rollback` 在同一目录下多出一个
+  // 字典序更靠后的候选（`…Z-admin` > `…Z`），于是「回滚」拿到的是只含两个文件的清单，
+  // 仓库再也回不到初始化前。自测 C6（逐字节相同）就是靠这个差异抓出来的。
+  // 手动路径 `scripts/admin-init.mjs` 没有引擎快照可用，那里仍然自己快照。
+  const backupDir = null;
+
+  const report = {
+    written: [],
+    failed: [],
+    skipped: [...planned.skipped],
+    existedBefore: [...planned.overwritten],
+  };
+
+  // 登记必须在 apply **之前**：判定 `existed` 用的是「此刻磁盘上有没有」，
+  // 而 apply 之后每个目标都变成「有」。顺序反了的话，被覆盖的 `app/app.vue`
+  // 会被登记成 `existed: false`，回滚时直接删掉它 —— 见 registerInSnapshot 的注释。
+  registerInSnapshot(root, runBackupDir, [...planned.willWrite, ADMIN_RECORD_FILE], failures);
+
+  applyAdmin(root, planned, report);
+  for (const item of report.failed) {
+    failures.push(`后台骨架写入失败：${item.path}（${item.reason}）`);
+  }
+
+  try {
+    writeAdminRecord(root, planned, report, backupDir);
+  }
+  catch (err) {
+    failures.push(`写 ${ADMIN_RECORD_FILE} 失败：${err.message}`);
+  }
+
+  // C1~C5 在这里就报，而不是等用户自己想起来跑 `--check`：
+  // 进度流里能一眼看到「视图层标签是不是本档的」「必需依赖在不在」，
+  // 这五条正是后面「页面能跑」的前提。
+  for (const result of verifyAdmin(root, { skipDeps: args.skipInstall })) {
+    out.emit({
+      type: 'log',
+      level: result.ok ? 'info' : 'error',
+      line: `后台骨架 C${result.id} ${result.ok ? 'PASS' : 'FAIL'} ${result.label}：${result.detail}`,
+    });
+    if (!result.ok) failures.push(`后台骨架断言 C${result.id} 未通过：${result.detail}`);
+  }
+}
+
+/**
+ * 把第 5 阶段**将要触碰的每个文件**登记进第 2 阶段的引擎快照。
+ *
+ * 为什么必须登记，而且必须在 apply **之前**登记：
+ * `--rollback` 只认快照里的 `manifest.json` —— 逐个 `existed: true` 的还原、
+ * 逐个 `existed: false` 的删除。引擎第 2 阶段算得出上游那几个文件，算不出后台骨架会碰什么。
+ * 不登记的话有两个后果，且**方向相反、都不报错**：
+ *   · 新建的 22 个文件回滚后原样留着 → 「回滚 = 回到初始化前」失效（自测 C6）；
+ *   · `app/app.vue` 这类**被覆盖**的文件，只要被登记成 `existed: false`，
+ *     回滚就会把它**删掉** —— 而它的原始内容谁也没留过，于是文件彻底消失。
+ * 所以判断 `existed` 必须用「此刻在不在磁盘上」，并且原始内容要**当场**拷进快照目录。
+ *
+ * 失败只记进 failures、不抛：回滚契约受影响是真的，但那不该让一次成功的叠加变红。
+ */
+function registerInSnapshot(root, backupDir, paths, failures) {
+  if (!backupDir) return;
+  const manifestPath = resolve(backupDir, 'manifest.json');
+  try {
+    const manifest = existsSync(manifestPath)
+      ? JSON.parse(readFileSync(manifestPath, 'utf8'))
+      : [];
+    const known = new Set(manifest.map((entry) => entry.path));
+    let added = 0;
+    for (const rel of paths) {
+      if (known.has(rel)) continue; // 引擎第 2 阶段已经登记过（含 app/pages/index.vue）
+      known.add(rel);
+      const from = safeJoin(root, rel);
+      if (existsSync(from)) {
+        const to = resolve(backupDir, rel);
+        mkdirSync(dirname(to), { recursive: true });
+        cpSync(from, to);
+        manifest.push({ path: rel, existed: true });
+      }
+      else {
+        manifest.push({ path: rel, existed: false });
+      }
+      added += 1;
+    }
+    if (added) writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  }
+  catch (err) {
+    failures.push(`把第 5 阶段触碰的文件登记进快照失败（${manifestPath}）：${err.message}`);
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * 主流程
  * ------------------------------------------------------------------ */
@@ -1235,18 +1397,32 @@ async function runInit(root, args, out) {
   const ctx = resolvePlan(root, args);
   const plan = ctx.plan;
 
+  // 后台骨架的清单也在计划里报出来：用户在预览里看到的应当与第 5 阶段真写的是同一件事，
+  // 而不是等他点完才知道。源目录缺失时这里**不抛错** —— 下一页的预检会把它报成
+  // 一条带路径的 problem，比在这里冒一个没有上下文的异常有用得多。
+  let adminPlanNote = null;
+  if (!args.skipAdmin) {
+    try {
+      adminPlanNote = adminPlanSummary(planAdmin(root, { ui: plan.selection.ui, upstreamUi: plan.selection.ui }));
+    }
+    catch (err) {
+      adminPlanNote = `无法计算（${err.message}）`;
+    }
+  }
+
   out.emit({
     type: 'plan',
     plan: {
       ...plan,
       selectionText: describeSelection(ctx.options ?? { groups: [] }, plan.selection),
       baselineTargets: BASELINE_TARGETS,
+      admin: adminPlanNote,
     },
   });
 
   // 模板预检放在「计划之后、动手之前」：这一段的失败必须做到仓库逐字节不变，
   // 否则用户面对的是一个删了一半的仓库，而他还什么都没做错
-  const problems = preflightTemplates(root, ctx);
+  const problems = preflightTemplates(root, ctx, args);
   for (const problem of problems) out.emit({ type: 'error', stage: 'plan', message: problem });
 
   if (args.dryRun) {
@@ -1325,13 +1501,21 @@ async function runInit(root, args, out) {
       if (!failures.length) writeConfig(root, ctx, report, failures, out);
     }
 
+    // 阶段 5：叠加后台骨架。排在 writeConfig 之后（要读那一档 ui）、removeLock 之前
+    // （锁还握着，刷新页面看到的仍是「初始化正在跑」而不是半成品）。
+    if (!failures.length && !args.skipAdmin) {
+      stage(4, 'admin');
+      writeLock(root, { pid: process.pid, startedAt: new Date().toISOString(), stage: 'admin', selection: plan.selection });
+      adminStage(root, ctx, args, failures, out, backupDir);
+    }
+
     // 破坏性动作全部完成且没有失败 → 删锁。锁只保护「可能被改到一半」的那段时间。
     if (!failures.length) removeLock(root);
   } catch (err) {
     failures.push(`未预期的错误：${err.stack ?? err.message}`);
   }
 
-  stage(4, 'verify');
+  stage(5, 'verify');
   let verifyCode = 1;
   try {
     // skipInstall 要传下去：没跑安装阶段时第 11 项（依赖已安装）必须**跳过**而不是失败，
@@ -1386,6 +1570,7 @@ export function printHelp(writer = process.stdout) {
     '  --save-plan               把计划写到 .init-backup/<时间戳>/plan.json',
     '  --json-lines              每行输出一条 JSON 事件（供接口转发）',
     '  --skip-install            跳过安装阶段',
+    '  --skip-admin              跳过第 5 阶段（不叠加后台骨架，只要上游基线）',
     '  --force-experimental      解除实验性选项的阻断（CLI 专属，界面不提供）',
     '  --fast                    跳过耗时的校验项（类型检查）',
     '  --root <dir>              指定仓库根目录（缺省为当前工作目录）',

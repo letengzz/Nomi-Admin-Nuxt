@@ -462,7 +462,7 @@ function simulateInstalled(dir) {
     const keys = [...keysMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
     const names = [...namesMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
-    eq(keys, ['plan', 'snapshot', 'install', 'apply', 'verify'], '引擎阶段顺序（install 必须在 apply 之前）');
+    eq(keys, ['plan', 'snapshot', 'install', 'apply', 'admin', 'verify'], '引擎阶段顺序（install 必须在 apply 之前，后台骨架要在 verify 之前）');
     eq(names.length, keys.length, '阶段名与阶段键数量必须相等');
 
     // 前端阶段条自己写了一份 STAGES；两份漂移的症状是「进度条指错阶段」，比对长度不够，顺序也要对。
@@ -488,6 +488,15 @@ function simulateInstalled(dir) {
       /if \(!failures\.length\) \{\s*stage\(3, 'apply'\)/.test(init),
       'apply 必须包在 `if (!failures.length)` 里：安装失败就该一次 apply 都不跑，仓库保持点击前的样子',
     );
+
+    // 后台骨架（第 5 阶段）必须在 verify 之前：verify 的第 8 项是「首页已替换」，
+    // 而首页正是被这一阶段覆盖的。排在后面的话，那 12 项断言验的是**叠加前**的中间态 ——
+    // 一条永远绿、却什么都没验的断言。
+    const adminAt = init.indexOf("stage(4, 'admin')");
+    const verifyAt = init.indexOf("stage(5, 'verify')");
+    assert(adminAt > 0, '找不到第 5 阶段（后台骨架）的调用点');
+    assert(verifyAt > adminAt, '后台骨架必须排在「校验产物」之前，否则那 12 项验的不是最终产物');
+    assert(adminAt > applyAt, '后台骨架必须排在 apply 之后：它要读 apply 收尾写出的 template.config.json');
 
     // 安装前唯一一次写盘只许碰 pnpm-workspace.yaml。提前写 nuxt.config 的 modules
     // 等于把这个 bug 原样放回来，而且连「安装失败」这个触发条件都不再需要。
@@ -598,8 +607,12 @@ function simulateInstalled(dir) {
       /state\.remote\?\.locked\s*&&\s*state\.remote\?\.processAlive/.test(setup),
       '选择页的分流判据必须要求进程仍存活（残锁要留在进度页看失败原因）',
     );
+    // 判据锚在「守卫 + 跳转」这两件事上，不锚某一种写法：一行式
+    // （`if (!hasRun.value) await navigateTo('/setup')`）与带花括号、跳转后 return 的块式
+    // 都满足这条承诺。锚死成一行式的话，往后只要有人给这个分支加一句日志就会假红，
+    // 而假红指向的是完全正确的代码。
     assert(
-      /if \(!hasRun\.value\) await navigateTo\('\/setup'\)/.test(progress),
+      /if \(!hasRun\.value\)[\s\S]{0,160}?navigateTo\('\/setup'\)/.test(progress),
       '进度页在「确实没有初始化在跑」时必须回选择页',
     );
     // 判据本身跨两行，所以用 [\s\S] 抓到第一个 `);` 为止

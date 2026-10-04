@@ -18,7 +18,7 @@ defineProps<{
   exitCode: number | null;
 }>();
 
-const emit = defineEmits<{ detach: []; retry: []; refresh: [] }>();
+const emit = defineEmits<{ detach: []; retry: []; refresh: []; enter: [] }>();
 </script>
 
 <template>
@@ -27,12 +27,15 @@ const emit = defineEmits<{ detach: []; retry: []; refresh: [] }>();
   <div class="wizard__footer">
     <span class="wizard__footer-status">
       <template v-if="status === 'running'">执行中，请不要关闭标签页。</template>
-      <template v-else-if="status === 'done'">初始化已完成。</template>
+      <template v-else-if="status === 'done'">初始化已完成，后台骨架已按所选技术栈叠加。</template>
       <template v-else-if="status === 'failed'">
         退出码 {{ exitCode ?? '—' }}。失败时引擎会<strong>保留</strong>锁文件，避免你在半删状态下重跑。
       </template>
     </span>
 
+    <button v-if="status === 'done'" type="button" class="wizard__primary" @click="emit('enter')">
+      进入后台管理系统 →
+    </button>
     <button v-if="status === 'running'" type="button" @click="emit('detach')">
       中断进度流
     </button>

@@ -13,19 +13,44 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * 请求执行器的**最小签名**：只声明我们真正会调用的那一种用法。
+ *
+ * 为什么不直接写 `typeof $fetch`：`$fetch` 是重载 + 泛型，`await fetcher<T>(url, …)`
+ * 推不出 `T`（返回的是 `TypedInternalResponse<…>`，与 `T` 无可比关系，报 TS2322）；
+ * 而 `useRequestFetch()` 的返回类型是 `$Fetch | H3Event$Fetch`，后者缺 `raw` / `create`，
+ * 也赋不进 `typeof $fetch`。两头都卡在「把整个重载类型搬进来」这件事上 ——
+ * 而参数类型本来只需要描述**这一个调用形状**。
+ */
+export type RequestFetcher = <T>(
+  url: string,
+  options: { method?: string; body?: unknown; query?: unknown; timeout?: number },
+) => Promise<T>
+
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   query?: Record<string, unknown>
+  /**
+   * 请求执行器。缺省是全局 `$fetch`。
+   *
+   * 为什么要留这个口子：SSR 里 `$fetch('/api/…')` 是**进程内直调**，不走网络，
+   * 因此**不会带上传入请求的 Cookie**。服务端渲染时它拿不到 `admin_session`，
+   * 于是 `/api/auth/me` 一律 401 —— 症状是「明明刚登录成功，刷新一下又被踢回登录页」，
+   * 而浏览器里单独打这个接口又是 200。
+   * 组合式函数在 setup 期捕获 `useRequestFetch()`（它会转发入站 Cookie）并从这里注入。
+   */
+  fetcher?: RequestFetcher
 }
 
 /** 唯一的请求出口：超时、错误归一、类型都在这里收敛 */
 export async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
+  const fetcher = (options.fetcher ?? $fetch) as RequestFetcher
   try {
-    return await $fetch<T>(url, {
+    return await fetcher<T>(url, {
       method: options.method ?? 'GET',
-      body: options.body as never,
-      query: options.query as never,
+      body: options.body,
+      query: options.query,
       timeout: REQUEST_TIMEOUT,
     })
   }

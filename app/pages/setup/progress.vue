@@ -38,9 +38,56 @@ const { state, stages } = wizard;
 const hasRun = computed(() =>
   state.mode === 'stream' || Boolean(state.remote?.locked) || state.remote?.initialized === true);
 
+/**
+ * 初始化成功之后**自动进入后台管理系统**。
+ *
+ * 为什么要跳、而且是整页跳：
+ *   ① 用户点的是「初始化项目」，期待的是「拿到我的工程」。停在进度页上再让他自己
+ *      去地址栏敲 `/`，等于把「工程在哪」这个问题留给他 —— 而这一页连同它的路由
+ *      马上就要被删掉了，此时它在地址栏里看起来像是一个错误页；
+ *   ② 必须整页导航而不是 `navigateTo`：路由表刚被改过（引导器文件已删、后台页面刚写进
+ *      `app/`），客户端路由里还留着旧表，只有重新走一次 HTTP 才能让 dev 重新扫描。
+ *
+ * 留一条手动入口（下方模板里的链接）而不是把跳转做成唯一出口：万一 dev 服务
+ * 恰好在重启，自动跳过去会看到一个瞬时错误页，那时用户手上得有一个能自己按的按钮。
+ */
+const JUMP_DELAY_MS = 1500;
+const jumping = ref(false);
+const done = computed(() => state.status === 'done');
+let jumpTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleJump(): void {
+  if (jumping.value || !import.meta.client) return;
+  jumping.value = true;
+  jumpTimer = setTimeout(() => {
+    // replace 而不是 assign：不要在历史里留一个「已经不存在了的进度页」
+    window.location.replace('/');
+  }, JUMP_DELAY_MS);
+}
+
+/** 用户不等倒计时，自己按了按钮 */
+function jumpNow(): void {
+  if (jumpTimer) clearTimeout(jumpTimer);
+  if (import.meta.client) window.location.replace('/');
+}
+
+watch(done, (value) => {
+  if (value) scheduleJump();
+});
+
+onBeforeUnmount(() => {
+  if (jumpTimer) clearTimeout(jumpTimer);
+});
+
 onMounted(async () => {
   await wizard.attach();
-  if (!hasRun.value) await navigateTo('/setup');
+  if (!hasRun.value) {
+    await navigateTo('/setup');
+    return;
+  }
+  // 刷新进来时初始化可能早就跑完了（状态来自磁盘），这条分支负责把「已经完成」也当成
+  // 「刚完成」处理 —— 否则刷新一次就永远停在进度页，而这一页的路由其实已经没了。
+  if (done.value) scheduleJump();
 });
 
 /**
@@ -80,6 +127,16 @@ function onRetry(): void {
       </div>
 
       <div class="wizard__full preview">
+        <p v-if="done">
+          <strong>初始化完成。</strong>
+          <span v-if="jumping">正在进入后台管理系统……</span>
+          <a v-else href="/">进入后台管理系统 →</a>
+        </p>
+        <p v-if="done">
+          后台骨架已经按你选的技术栈叠加完成，守卫会把未登录的访问带到登录页
+          （演示账号 <code>admin / admin123</code>）。如果自动跳转没有发生，
+          点上面的链接或直接访问 <code>/</code>。
+        </p>
         <p><NuxtLink to="/setup">
           ← 回到选择页
         </NuxtLink></p>
@@ -98,6 +155,7 @@ function onRetry(): void {
         @detach="wizard.detach()"
         @retry="onRetry()"
         @refresh="wizard.refreshStatus()"
+        @enter="jumpNow()"
       />
     </div>
   </main>

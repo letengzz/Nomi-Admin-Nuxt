@@ -1,5 +1,5 @@
 import type { PageResult } from '~/types/admin'
-import { ApiRequestError, request } from '~/utils/api'
+import { ApiRequestError, request, type RequestFetcher } from '~/utils/api'
 import { DEFAULT_PAGE_SIZE } from '~/config/env'
 
 export interface CrudOptions {
@@ -23,6 +23,9 @@ export function useCrud<T extends { id: number }, F extends Record<string, unkno
   const error = ref<ApiRequestError | null>(null)
   const filters = reactive({ ...initialFilters })
 
+  // 同 useAuth：SSR 里必须用会转发入站 Cookie 的 fetch，否则首屏拿不到登录态（见 utils/api.ts）
+  const fetcher = useRequestFetch() as RequestFetcher
+
   // 竞态守卫：只接受「最后一次发出」的请求结果
   let seq = 0
 
@@ -33,6 +36,7 @@ export function useCrud<T extends { id: number }, F extends Record<string, unkno
     try {
       const res = await request<PageResult<T>>(options.url, {
         query: { page: page.value, size: size.value, ...filters },
+        fetcher,
       })
       if (mine !== seq) return                   // 已有更新的请求在路上 → 丢弃本次
       items.value = res.items

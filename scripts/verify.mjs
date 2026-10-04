@@ -41,6 +41,7 @@ import {
   readSection,
 } from '../shared/wizard/sections.mjs';
 import { KEEP_FILES, WIZARD_FILES } from '../shared/wizard/whitelist.mjs';
+import { ADMIN_SNAPSHOT_SUFFIX } from './lib/admin-layer.mjs';
 import { runCommand } from './lib/proc.mjs';
 
 /* ------------------------------------------------------------------ *
@@ -100,12 +101,20 @@ function readJsonFile(file) {
   }
 }
 
-/** 最新的快照目录（时间戳命名，字典序即时间序） */
+/**
+ * 最新的**引擎**快照目录（时间戳命名，字典序即时间序）。
+ *
+ * 必须排掉后台骨架层的 `-admin` 快照：它与引擎快照共用一个 `.init-backup/`，
+ * 而 `…Z-admin` 的字典序**大于** `…Z`（前缀相同、长者靠后），不排的话这里会挑到
+ * 只有两个文件的那份清单 —— 第 9 项于是找不到快照里的 `nuxt.config.ts`，
+ * 静默退化成「哈希兜底」。断言还在跑、却什么都没比，是最难发现的一种退化。
+ */
 function latestSnapshotDir(root) {
   const base = resolve(root, BACKUP_DIR);
   if (!existsSync(base)) return null;
   const stamps = readdirSync(base)
     .filter((name) => {
+      if (name.endsWith(ADMIN_SNAPSHOT_SUFFIX)) return false;
       try {
         return statSync(join(base, name)).isDirectory();
       } catch {
@@ -262,6 +271,20 @@ function checkWizardDirs(ctx) {
 }
 
 /**
+ * 把 `typescript@5` / `@nuxt/eslint@3` 这样的依赖声明归一成**包名**。
+ *
+ * 为什么断言必须按包名核对：安装命令是原样交给包管理器的（第 3 阶段跑的是
+ * `pnpm add -D typescript@5`），而 `package.json` 与 `node_modules/` 里落下的
+ * 永远是包名。按声明字符串去比对，一个合法的版本锁定就会被报成
+ * 「这个包没写进 package.json / 没落盘」—— 红灯指向的却是完全正确的产物，
+ * 这类假红最容易被误改（有人会去把 version pin 删掉，而不是改断言）。
+ */
+function packageNameOf(spec) {
+  const at = spec.lastIndexOf('@');
+  return at > 0 ? spec.slice(0, at) : spec;
+}
+
+/**
  * 5. package.json 无引导期专用依赖
  *
  * 注意**不**在这里核对「plan.deps 是否已在 package.json 里」：
@@ -287,7 +310,7 @@ function checkPackageDeps(ctx) {
   if (!deps.nuxt) problems.push('dependencies 里没有 nuxt（引导期与产物期都要它）');
 
   // 「多出来的包」只提示不判失败：初始化之后自己加依赖是完全正常的演进
-  const declared = new Set(['nuxt', ...(ctx.plan?.deps ?? []), ...(ctx.plan?.devDeps ?? [])]);
+  const declared = new Set(['nuxt', ...(ctx.plan?.deps ?? []).map(packageNameOf), ...(ctx.plan?.devDeps ?? []).map(packageNameOf)]);
   const extra = [...Object.keys(deps), ...Object.keys(devDeps)].filter((name) => !declared.has(name));
   if (extra.length) ctx.notes.push(`package.json 里有计划之外的包（你自己加的？）：${extra.join(', ')}`);
 
@@ -466,8 +489,9 @@ function checkInstalled(ctx) {
 
   const deps = ctx.pkg?.dependencies ?? {};
   const devDeps = ctx.pkg?.devDependencies ?? {};
-  const planDeps = ctx.plan?.deps ?? [];
-  const planDev = ctx.plan?.devDeps ?? [];
+  // 按**包名**核对（见 packageNameOf）：声明里可以带版本范围，落盘的只有包名
+  const planDeps = (ctx.plan?.deps ?? []).map(packageNameOf);
+  const planDev = (ctx.plan?.devDeps ?? []).map(packageNameOf);
 
   const undeclared = [
     ...planDeps.filter((name) => !deps[name]).map((name) => `${name}（dependencies）`),

@@ -1,11 +1,21 @@
 import type { UserRow } from '~/types/admin'
 
 /**
- * 事件对象的结构化最小类型。
- * 刻意不从 'h3' import —— pnpm 的严格布局下 h3 不在根 node_modules 里，
- * 直接 import 类型会让 typecheck 解析失败；这里只需要「能传给 setResponseStatus」。
+ * 事件对象类型。
+ *
+ * Nuxt/Nitro 全局注入的 `H3Event` 在 h3 v2 里是一个**类**（值），不是类型别名 ——
+ * 所以要用 `InstanceType<typeof H3Event>` 取实例类型，直接写 `H3Event` 会报
+ * `TS2749: 'H3Event' refers to a value, but is being used as a type here`。
+ *
+ * **不要**写成 `Parameters<typeof setResponseStatus>[0]`：那个函数是重载的
+ * （`(event, code?, message?)` 与 `(code, message?)`），而 `Parameters<>` 取的是
+ * **最后一个**重载 —— 得到的是 `number` 而不是事件。于是 `setResponseStatus(event, status)`
+ * 会报 `TS2769`，且报错里两个候选重载看起来都与这行无关，排查成本极高。
+ *
+ * 不从 `'h3'` 直接 import 类型：pnpm 的严格布局下 h3 不在根 `node_modules` 里，
+ * 那会让产物一装完就 typecheck 失败。
  */
-type ServerEvent = Parameters<typeof setResponseStatus>[0]
+type ServerEvent = InstanceType<typeof H3Event>
 
 /**
  * 演示用数据源：进程内存里的账号表、令牌表与用户列表。
