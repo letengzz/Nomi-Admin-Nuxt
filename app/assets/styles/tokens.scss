@@ -1,0 +1,62 @@
+// ===========================================================================
+// 设计令牌 · 输出层：把变量层展开成 CSS 变量。
+//
+// 分工：
+//   _vars.scss  —— 只有 Sass 变量，被 additionalData 注入到每个 .scss（零输出）
+//   本文件      —— 只有 CSS 输出，由 nuxt.config.ts 的 css 数组引入一次
+//
+// 这样业务组件既能写 $brand-600（编译期），也能写 var(--brand-600)（运行期，
+// 可被暗色模式与运行时覆盖），两套写法来自同一处定义。
+//
+// 注意：本文件依赖 additionalData 注入的 $ 变量，**不是**自包含的。
+// 用 sass 命令行单独编译本文件会报 "Undefined variable" —— 这是预期行为。
+// ===========================================================================
+
+// 用 map 生成 :root 与暗色块：新增一个令牌只改变量层一处，不用在下面补两处。
+:root {
+  // 设计稿与实现之间只隔这一层：业务组件永远只引用 --语义名。
+  // 品牌色阶**跟随运行时主色**：--el-color-primary 由主题插件写在 <html> 的内联
+  // 样式里，用户换主题色时整套品牌色一起变。
+  // 写死绿色会分裂成两套主色 —— 首页按钮绿、Element Plus 组件蓝，换色时只有一半界面响应。
+  // 第二个参数是 Sass 变量兜底值：Element Plus 尚未加载（或纯静态导出）时仍能取到颜色。
+  --brand-50: var(--el-color-primary-light-9, #{$brand-50});
+  --brand-500: var(--el-color-primary-light-3, #{$brand-500});
+  --brand-600: var(--el-color-primary, #{$brand-600});
+  --brand-700: var(--el-color-primary-dark-2, #{$brand-700});
+
+  --bg: #{$bg};
+  --bg-subtle: #{$bg-subtle};
+  --fg: #{$fg};
+  --fg-muted: #{$fg-muted};
+  --border: #{$border};
+  --danger: #{$danger};
+  --danger-bg: #{$danger-bg};
+  --warn: #{$warn};
+  --warn-bg: #{$warn-bg};
+  --info: #{$info};
+  --info-bg: #{$info-bg};
+
+  --sp-1: #{$sp-1};
+  --sp-2: #{$sp-2};
+  --sp-3: #{$sp-3};
+  --sp-4: #{$sp-4};
+  --sp-6: #{$sp-6};
+  --sp-8: #{$sp-8};
+  --radius: #{$radius};
+  --radius-lg: #{$radius-lg};
+
+  --font-sans: #{$font-sans};
+  --font-mono: #{$font-mono};
+  --text-sm: #{$text-sm};
+  --text-base: #{$text-base};
+  --text-lg: #{$text-lg};
+  --ease: #{$ease};
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    @each $name, $value in $dark {
+      --#{$name}: #{$value};
+    }
+  }
+}

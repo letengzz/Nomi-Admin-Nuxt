@@ -1,0 +1,70 @@
+{
+  "app": {
+    "title": "Nomi Admin",
+    "description": "基于 Nuxt 4 的企业级中后台模板"
+  },
+  "home": {
+    "badge": "Nuxt 4 · 中后台基座",
+    "lead": "一套开箱可用的中后台工程底子：混合渲染、严格类型、组件库与设计令牌、国际化、质量工具与容器化部署都已就位。",
+    "ctaLogin": "进入登录页",
+    "ctaHealth": "健康检查",
+    "stackTitle": "技术栈",
+    "entryTitle": "入口与构建配置在哪里",
+    "entry": {
+      "config": "模块、渲染策略、构建优化",
+      "app": "全局壳、Element Plus 配置与主题变量",
+      "plugins": "初始化顺序：主题 → 错误处理 → 启动收尾"
+    }
+  },
+  "nav": {
+    "home": "首页",
+    "about": "关于"
+  },
+  "action": {
+    "save": "保存",
+    "cancel": "取消",
+    "retry": "重试"
+  },
+  "error": {
+    "notFound": "页面不存在",
+    "network": "网络异常，请稍后重试"
+  },
+  "login": {
+    "pageTitle": "登录",
+    "title": "欢迎回来",
+    "subTitle": "输入您的账号和密码登录",
+    "leftView": {
+      "title": "一款兼具设计美学与高效开发的后台系统",
+      "subTitle": "美观实用的界面，经过视觉优化，确保卓越的用户体验"
+    },
+    "roles": {
+      "super": "超级管理员",
+      "admin": "管理员",
+      "user": "普通用户"
+    },
+    "accountLabel": "演示账号",
+    "placeholder": {
+      "username": "请输入账号",
+      "password": "请输入密码",
+      "slider": "请拖动滑块完成验证"
+    },
+    "sliderText": "按住滑块拖动",
+    "sliderSuccessText": "验证成功",
+    "rememberPwd": "记住密码",
+    "forgetPwd": "忘记密码",
+    "btnText": "登录",
+    "noAccount": "还没有账号？",
+    "register": "注册",
+    "success": {
+      "title": "登录成功",
+      "message": "欢迎回来"
+    },
+    "demoHint": "演示环境：选择角色自动填入账号，密码统一为 123456",
+    "notAvailable": "演示环境暂未开放该页面",
+    "theme": {
+      "palette": "切换主色",
+      "language": "切换语言",
+      "dark": "切换明暗主题"
+    }
+  }
+}

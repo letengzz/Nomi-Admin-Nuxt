@@ -1,0 +1,70 @@
+{
+  "app": {
+    "title": "Nomi Admin",
+    "description": "An enterprise admin template built on Nuxt 4"
+  },
+  "home": {
+    "badge": "Nuxt 4 · Admin foundation",
+    "lead": "A production-ready admin foundation: hybrid rendering, strict typing, component library with design tokens, i18n, quality tooling and container deployment are already wired up.",
+    "ctaLogin": "Open sign-in",
+    "ctaHealth": "Health check",
+    "stackTitle": "Stack",
+    "entryTitle": "Where the entry and build config live",
+    "entry": {
+      "config": "Modules, rendering strategy, build optimisations",
+      "app": "Global shell, Element Plus config and theme variables",
+      "plugins": "Startup order: theme → error handling → bootstrap"
+    }
+  },
+  "nav": {
+    "home": "Home",
+    "about": "About"
+  },
+  "action": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "retry": "Retry"
+  },
+  "error": {
+    "notFound": "Page not found",
+    "network": "Network error, please try again"
+  },
+  "login": {
+    "pageTitle": "Sign in",
+    "title": "Welcome back",
+    "subTitle": "Please enter your account and password to login",
+    "leftView": {
+      "title": "A backend system of beauty and efficiency",
+      "subTitle": "A sleek and practical interface for a great user experience"
+    },
+    "roles": {
+      "super": "Super Admin",
+      "admin": "Admin",
+      "user": "User"
+    },
+    "accountLabel": "Demo account",
+    "placeholder": {
+      "username": "Please enter your account",
+      "password": "Please enter your password",
+      "slider": "Please slide to verify"
+    },
+    "sliderText": "Please slide to verify",
+    "sliderSuccessText": "Verification successful",
+    "rememberPwd": "Remember password",
+    "forgetPwd": "Forgot password",
+    "btnText": "Login",
+    "noAccount": "No account yet?",
+    "register": "Register",
+    "success": {
+      "title": "Login successful",
+      "message": "Welcome back"
+    },
+    "demoHint": "Demo: pick a role to fill in the account, password is 123456",
+    "notAvailable": "This page is not available in the demo",
+    "theme": {
+      "palette": "Change theme color",
+      "language": "Change language",
+      "dark": "Toggle dark mode"
+    }
+  }
+}

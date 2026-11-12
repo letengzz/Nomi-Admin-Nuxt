@@ -1,0 +1,46 @@
+# 服务器部署用的 compose 文件，由 CI 同步到 $DEPLOY_PATH/compose.yaml。
+#
+# 与根目录 compose.yaml 的区别：
+#   · image 来自 GHCR，服务器上不执行 docker build（构建只在 Actions 里做一次）；
+#   · nginx.conf 与本文件同目录，所以挂载路径是 ./nginx.conf；
+#   · 精确版本号由 CI 通过 NOMI_IMAGE 环境变量注入（sha-<短 commit>），
+#     便于回滚；不设置时退回 latest。
+#
+# 手动启用反向代理：
+#   docker compose -f compose.yaml --profile proxy up -d
+
+services:
+  app:
+    # fork 本仓库后把这里的 owner/repo 改成自己的（GHCR 名称必须全小写）
+    image: ${NOMI_IMAGE:-ghcr.io/letengzz/nomi-admin-nuxt:latest}
+    restart: unless-stopped
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: '3000'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    mem_limit: 512m
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - '8080:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    profiles:
+      - proxy

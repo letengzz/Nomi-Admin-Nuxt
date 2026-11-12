@@ -1,0 +1,38 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+.nuxtrc
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# 本地校验/截图工具的产物
+#
+# .playwright-cli/ 是浏览器自动化 CLI 的会话目录（控制台日志、临时脚本），
+# 属于「本机排障留下的痕迹」，每次跑都会变，不该进仓库。
+# 根目录的 *.png 是人工复核 UI 时截的图，同样不入库。
+# ---------------------------------------------------------------------------
+.playwright-cli/
+/*.png
+
+# WorkBuddy 本地工作数据（会话记忆、临时笔记）——只属于本机，不进仓库
+.workbuddy/

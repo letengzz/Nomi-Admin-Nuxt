@@ -1,0 +1,69 @@
+/**
+ * 登录页支撑层单测：主题色计算、演示账号、错误信息提取。
+ * 全部是纯函数，跑在 happy-dom 环境里，不需要拉起 Nuxt 运行时。
+ */
+import { describe, expect, it } from 'vitest';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../app/constants/auth';
+import { buildPrimaryVars, mixColor, THEME_COLORS } from '../app/utils/theme';
+import { getErrorMessage } from '../app/services/auth';
+
+describe('主题色工具', () => {
+  it('mixColor 的边界权重返回对应纯色', () => {
+    expect(mixColor('#FFFFFF', '#000000', 1)).toBe('#FFFFFF');
+    expect(mixColor('#FFFFFF', '#000000', 0)).toBe('#000000');
+    expect(mixColor('#FFFFFF', '#FFFFFF', 0.5)).toBe('#FFFFFF');
+  });
+
+  it('mixColor 会按权重线性混合通道', () => {
+    expect(mixColor('#FFFFFF', '#000000', 0.5)).toBe('#808080');
+  });
+
+  it('有 7 个预设主色且互不重复', () => {
+    expect(THEME_COLORS).toHaveLength(7);
+    expect(new Set(THEME_COLORS).size).toBe(7);
+  });
+
+  it('buildPrimaryVars 生成 Element Plus 主色与 1..9 级浅色', () => {
+    const vars = buildPrimaryVars('#5D87FF', false);
+    expect(vars['--el-color-primary']).toBe('#5D87FF');
+    expect(vars['--main-color']).toBe('#5D87FF');
+    for (let i = 1; i <= 9; i += 1) {
+      expect(vars[`--el-color-primary-light-${i}`]).toMatch(/^#[0-9A-F]{6}$/);
+    }
+    expect(vars['--el-color-primary-dark-2']).toMatch(/^#[0-9A-F]{6}$/);
+  });
+
+  it('明色 light-9 比 light-3 更接近白色', () => {
+    const vars = buildPrimaryVars('#5D87FF', false);
+    const lightness = (hex: string) => Number.parseInt((hex ?? '').slice(1, 3), 16);
+    expect(lightness(vars['--el-color-primary-light-9'])).toBeGreaterThan(
+      lightness(vars['--el-color-primary-light-3']),
+    );
+  });
+});
+
+describe('演示账号', () => {
+  it('提供 super / admin / user 三个角色', () => {
+    expect(DEMO_ACCOUNTS.map((account) => account.key)).toEqual(['super', 'admin', 'user']);
+    expect(DEMO_ACCOUNTS.every((account) => account.userName === account.key)).toBe(true);
+  });
+
+  it('演示密码与服务端白名单一致', () => {
+    expect(DEMO_PASSWORD).toBe('123456');
+  });
+});
+
+describe('getErrorMessage', () => {
+  it('优先取接口 data.msg', () => {
+    expect(getErrorMessage({ data: { msg: '账号或密码错误' } })).toBe('账号或密码错误');
+  });
+
+  it('兼容字符串 data 与普通 Error', () => {
+    expect(getErrorMessage({ data: '服务不可用' })).toBe('服务不可用');
+    expect(getErrorMessage(new Error('网络异常'))).toBe('网络异常');
+  });
+
+  it('未知错误返回兜底文案', () => {
+    expect(getErrorMessage(null)).toBe('登录失败，请稍后重试');
+  });
+});

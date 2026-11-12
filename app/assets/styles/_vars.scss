@@ -1,0 +1,71 @@
+// ===========================================================================
+// 设计令牌 · 变量层（纯声明，不产生任何 CSS 输出）。
+//
+// 为什么把变量单独拆出来：nuxt.config.ts 里用 sass 的 additionalData 把本文件
+// 注入到**每个** .scss 编译单元，组件里可以直接写 $brand-600 / $sp-4，
+// 不需要每个文件 @use 一遍。
+//
+// 因此本文件必须「零输出」—— 只有 $ 变量与 map，不能有 :root 或任何选择器。
+// 一旦在这里写选择器，每个组件的样式里都会多出一份重复的 :root 块。
+// 真正输出 CSS 变量的是 tokens.scss，它只被 nuxt.config.ts 的 css 数组引入一次。
+// ===========================================================================
+
+// --- 品牌色阶 -------------------------------------------------------------
+$brand-50: #effdf5;
+$brand-500: #00dc82;
+$brand-600: #00c16a;
+$brand-700: #007f45;
+
+$brands: (
+  'brand-50': $brand-50,
+  'brand-500': $brand-500,
+  'brand-600': $brand-600,
+  'brand-700': $brand-700,
+);
+
+// --- 语义色（浅色）-------------------------------------------------------
+$bg: #fff;
+$bg-subtle: #f8fafc;
+$fg: #0f172a;
+$fg-muted: #64748b;
+$border: #e2e8f0;
+$danger: #dc2626;
+$danger-bg: #fef2f2;
+$warn: #d97706;
+$warn-bg: #fffbeb;
+$info: #475569;
+$info-bg: #f1f5f9;
+
+// --- 间距 / 圆角 / 排版 / 动效 -------------------------------------------
+$sp-1: 4px;
+$sp-2: 8px;
+$sp-3: 12px;
+$sp-4: 16px;
+$sp-6: 24px;
+$sp-8: 32px;
+$radius: 8px;
+$radius-lg: 12px;
+
+$font-sans:
+  system-ui,
+  -apple-system,
+  'Segoe UI',
+  'Microsoft YaHei',
+  sans-serif;
+$font-mono: ui-monospace, 'Cascadia Code', consolas, monospace;
+$text-sm: 0.875rem;
+$text-base: 1rem;
+$text-lg: 1.125rem;
+$ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+// --- 暗色覆盖 ------------------------------------------------------------
+$dark: (
+  'bg': #0b1120,
+  'bg-subtle': #111827,
+  'fg': #e2e8f0,
+  'fg-muted': #94a3b8,
+  'border': #1f2937,
+  'danger-bg': #2a1315,
+  'warn-bg': #2a2110,
+  'info-bg': #16202e,
+);
