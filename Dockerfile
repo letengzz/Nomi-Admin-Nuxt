@@ -24,11 +24,15 @@ RUN corepack enable && pnpm install --frozen-lockfile
 
 # ---------------------------------------------------------------------------
 # build：构建层
+#
+# 必须 FROM deps，不能另起一个 node:22-alpine 再只拷 node_modules：
+# pnpm 是 corepack 在 deps 层里生成的 shim（/usr/local/bin/pnpm），
+# 换个基础镜像就丢了这个 shim，`RUN pnpm build` 会直接 exit 127。
+# 继承 deps 也让依赖层缓存原样复用，不必重复下载 pnpm。
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS build
+FROM deps AS build
 WORKDIR /app
 
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
