@@ -150,11 +150,9 @@ Nomi-Admin-Nuxt/
 │  ├─ integration/                   # 组件、路由与 API 集成测试
 │  └─ app.spec.ts                    # 当前 Pinia Store 示例测试
 ├─ deploy/
-│  ├─ nginx.conf                     # Nginx 反向代理、缓存与流式响应配置
-│  ├─ compose.prod.yaml              # 服务器部署编排（拉 GHCR 镜像，不在服务器构建）
-│  └─ remote-deploy.sh               # 服务器上执行的滚动更新与健康检查脚本
+│  └─ nginx.conf                     # Nginx 反向代理、缓存与流式响应配置
 ├─ .github/
-│  └─ workflows/ci-cd.yml            # CI 门禁 + GHCR 镜像 + SSH 自动部署
+│  └─ workflows/ci-cd.yml            # CI 门禁 + GitHub Pages 静态发布
 ├─ nuxt.config.ts                    # Nuxt 模块、渲染、样式与运行期配置
 ├─ uno.config.ts                     # UnoCSS 预设、主题与 shortcuts
 ├─ vitest.config.ts                  # Vitest 测试环境与匹配规则
@@ -274,6 +272,35 @@ Vitest 默认使用 `happy-dom`，测试文件匹配 `test/**/*.spec.ts`：
 
 ## 部署
 
+### GitHub Pages（当前线上部署方式）
+
+push 到 `main` 后，`.github/workflows/ci-cd.yml` 自动跑质量门禁、执行
+`pnpm generate` 并发布到 Pages：
+
+https://letengzz.github.io/Nomi-Admin-Nuxt/
+
+首次使用只需在仓库 `Settings > Pages > Build and deployment > Source` 选择
+**GitHub Actions**，之后每次 push 自动更新，也可以在 Actions 页手动 `Run workflow`。
+
+本地复现静态产物（Windows Git Bash 需要 `MSYS_NO_PATHCONV=1`，否则 `/xxx/`
+会被当成 POSIX 路径转换成 Windows 路径，污染 baseURL）：
+
+```bash
+MSYS_NO_PATHCONV=1 \
+NUXT_APP_BASE_URL=/Nomi-Admin-Nuxt/ \
+NUXT_SITE_URL=https://letengzz.github.io/Nomi-Admin-Nuxt \
+pnpm generate
+```
+
+产物在 `.output/public/`。`NUXT_APP_BASE_URL` 决定 HTML 里的资源前缀，
+`NUXT_SITE_URL` 决定 sitemap 与 canonical 的绝对地址；两者都由 workflow 注入，
+本地不设置时维持默认值，不影响开发。
+
+**静态化的限制**：Pages 只托管静态文件，Nitro 服务端路由不会随产物发布，
+因此 `/api/health` 与演示登录接口 `/api/auth/login` 在线上不可用，登录页提交会
+404。页面渲染、主题切换、国际化以及 sitemap / llms.txt 等静态产物正常可用。
+需要服务端接口时改用下面的 Node.js 或 Docker 部署。
+
 ### Node.js
 
 ```bash
@@ -304,66 +331,22 @@ docker compose --profile proxy up --build -d
 - Nginx 代理：`8080`
 - 健康检查：`/api/health`
 
-### 静态站点
-
-仅当业务不依赖 Nitro 服务端能力时使用：
-
-```bash
-pnpm generate
-```
-
-将 `.output/public/` 发布到静态托管平台即可。静态产物不包含
-`server/api/health` 等服务端接口。
-
 ## CI / CD 与自动部署
 
-`.github/workflows/ci-cd.yml` 在 push 到 `main`、提交 PR 和手动触发时运行，分三个 job：
+`.github/workflows/ci-cd.yml` 在 push 到 `main`、提交 PR 和手动触发时运行，分两个 job：
 
-1. **ci**：`pnpm lint`、`pnpm lint:style`、`pnpm typecheck`、`pnpm test`、`pnpm build`。
-   PR 只跑这一步，不构建镜像、不部署。
-2. **image**：CI 通过后用多阶段 `Dockerfile` 构建镜像，推送到
-   `ghcr.io/<owner>/<repo>`，同时打 `latest`、分支名和 `sha-<短 commit>` 三个 tag。
-3. **deploy**：SSH 到服务器，同步 `deploy/compose.prod.yaml` 与 `deploy/nginx.conf`，
-   拉取本次 commit 对应的精确镜像并 `docker compose up -d app`，随后轮询
-   `/api/health`；失败时打印容器日志并让 workflow 失败。
+1. **ci**：`pnpm lint`、`pnpm lint:style`、`pnpm typecheck`、`pnpm test`。
+   PR 只跑这一步，不发布。
+2. **pages**：`actions/configure-pages` 读取站点真实 `base_path` / `base_url`
+   → 注入 `NUXT_APP_BASE_URL` / `NUXT_SITE_URL` 后执行 `pnpm generate`
+   → 写入 `.nojekyll` → 上传产物 → `actions/deploy-pages` 发布。
 
-### 服务器准备
+### 两个不能省的细节
 
-只需要 Docker 与 Docker Compose 插件，不需要 Node、pnpm 或项目源码：
-
-```bash
-mkdir -p /opt/nomi-admin
-# 私有 GHCR 包：用有 read:packages 权限的 PAT 登录一次（也可把包可见性改为 public）
-echo '<PAT>' | docker login ghcr.io -u '<GitHub 用户名>' --password-stdin
-```
-
-若把 PAT 配成 `GHCR_READ_TOKEN` secret，workflow 每次部署会自动登录，上面这步可省略。
-
-### 需要的 Secrets
-
-在仓库 `Settings > Secrets and variables > Actions` 中添加：
-
-| Secret               | 说明                                        | 必填 |
-| -------------------- | ------------------------------------------- | ---- |
-| `SERVER_HOST`        | 服务器 IP 或域名                            | 是   |
-| `SERVER_USER`        | SSH 用户名                                  | 是   |
-| `SERVER_SSH_KEY`     | SSH 私钥全文（含 BEGIN / END 行）           | 是   |
-| `DEPLOY_PATH`        | 部署目录，如 `/opt/nomi-admin`              | 是   |
-| `SERVER_PORT`        | SSH 端口，默认 22                           | 否   |
-| `SERVER_KNOWN_HOSTS` | `ssh-keyscan -H -p 22 <host>` 输出，防 MITM | 否   |
-| `APP_PORT`           | 应用对外端口，默认 3000                     | 否   |
-| `GHCR_READ_TOKEN`    | 有 `read:packages` 权限的 PAT               | 否   |
-
-未配置必填项时，CI 与镜像构建照常成功，deploy 只打一条 warning 并跳过；补齐后
-重新运行 workflow 即可生效，无需改动代码。
-
-需要 Nginx 反向代理时，在服务器上手动启用一次（自动部署默认不带代理，避免占用
-8080 或与已有 Web 服务冲突）：
-
-```bash
-cd /opt/nomi-admin
-docker compose -f compose.yaml --profile proxy up -d
-```
+- **`.nojekyll`**：Pages 默认用 Jekyll 处理产物，会跳过 `_nuxt/` 这类下划线开头的
+  目录。缺了这个空文件，所有 JS/CSS 都会 404，页面只剩空壳。
+- **`baseURL`**：项目页挂在 `/<repo>/` 子路径，HTML 里的资源路径必须带这个前缀。
+  取值来自 `configure-pages` 输出而非硬编码，仓库改名或大小写不同都不会失效。
 
 ### 模板说明
 

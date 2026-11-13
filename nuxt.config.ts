@@ -46,9 +46,9 @@ export default defineNuxtConfig({
   },
 
   site: {
-    // @nuxtjs/seo 需要一个**绝对** URL 才能生成 sitemap 与 canonical，
-    // 部署前把这里改成真实域名，否则 sitemap 里会是一串 example.com。
-    url: 'https://example.com',
+    // @nuxtjs/seo 需要一个**绝对** URL 才能生成 sitemap 与 canonical。
+    // GitHub Pages 构建由 workflow 注入 NUXT_SITE_URL；本地不设置时仍是占位值。
+    url: process.env.NUXT_SITE_URL || 'https://example.com',
     name: 'Nomi Admin',
   },
   // <<< TEMPLATE:MODULE_OPTIONS
@@ -126,6 +126,9 @@ export default defineNuxtConfig({
   },
 
   app: {
+    // GitHub Pages 项目页挂在 /<repo>/ 子路径下，构建时必须注入 baseURL，
+    // 否则 HTML 里的 /_nuxt/ 资源路径会指向域名根目录而全部 404。
+    baseURL: process.env.NUXT_APP_BASE_URL || '/',
     head: {
       // 不写 htmlAttrs.lang / viewport：
       //   · lang 由 @nuxtjs/i18n 按当前 locale 自动写入，写死会把英文页面也标成 zh-CN；

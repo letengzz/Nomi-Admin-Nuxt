@@ -1,22 +1,14 @@
-name: CI / Build & Deploy
+name: CI / GitHub Pages
 
-# 完整链路：质量门禁 → 构建镜像推 GHCR → SSH 到服务器滚动更新。
+# 完整链路：质量门禁 → nuxt generate 静态化 → 发布到 GitHub Pages。
 #
-# 首次推送时如果还没配部署 secrets，CI 与镜像构建照常成功，deploy 只打一条
-# warning 并跳过；在 Settings > Secrets and variables > Actions 补齐后重新运行
-# 即可生效，不需要改这个 workflow。
+# Pages 项目页挂在 /<repo>/ 子路径下，baseURL 不能写死，必须由
+# actions/configure-pages 的 base_path 输出决定（它来自 GitHub API，
+# 仓库名大小写也以它为准）。缺了这一步，HTML 里的 /_nuxt/ 资源会指向
+# 域名根目录，页面打开就是一片空白。
 #
-# 需要的 Secrets（仓库级或 production environment 级）：
-#   SERVER_HOST        服务器 IP / 域名                       必填
-#   SERVER_USER        SSH 用户名                            必填
-#   SERVER_SSH_KEY     SSH 私钥全文（含 -----BEGIN / END-----）必填
-#   DEPLOY_PATH        服务器上的部署目录，如 /opt/nomi-admin   必填
-#   SERVER_PORT        SSH 端口，默认 22                      可选
-#   SERVER_KNOWN_HOSTS `ssh-keyscan -H -p 22 <host>` 的输出   可选，配了可防 MITM
-#   APP_PORT           应用对外端口，默认 3000                 可选
-#   GHCR_READ_TOKEN    有 read:packages 权限的 PAT            可选；私有镜像时用于
-#                      在服务器上 docker login。也可以预先在服务器登录一次，
-#                      或把 GHCR 包可见性改成 public，这样就不用配它。
+# 首次运行前需要在仓库 Settings > Pages > Build and deployment 里把
+# Source 设为 "GitHub Actions"（只需点一次，之后 workflow 会自动发布）。
 
 on:
   push:
@@ -25,14 +17,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# 部署不能被后一次 push 打断，否则容器会停在半更新状态。
+# 官方建议：部署排队但不取消，避免两次发布互相覆盖。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: pages
   cancel-in-progress: false
 
 permissions:
   contents: read
-  packages: write
+  pages: write
+  id-token: write
 
 jobs:
   ci:
@@ -41,8 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 版本不写死：读 package.json 的 packageManager 字段，
-      # 与 Dockerfile 里 corepack 选中的版本保持一致。
+      # 版本不写死：读 package.json 的 packageManager 字段。
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -64,149 +56,68 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+      # 不在这里跑 pnpm build：pages job 的 nuxt generate 本身包含完整
+      # 生产构建，重复一次只会多花两分钟。
 
-      - name: Production build
-        run: pnpm build
-
-  image:
-    name: Build & push Docker image
+  pages:
+    name: Build & deploy to GitHub Pages
     needs: ci
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      name: ${{ steps.image_name.outputs.name }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
-      # GHCR 只接受小写仓库名，而 github.repository 保留原始大小写。
-      - name: Compute lowercase image name
-        id: image_name
-        env:
-          REPO: ${{ github.repository }}
-        run: |
-          name="ghcr.io/$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+      # 读取站点真实 base_path / base_url；Pages 未启用时两者可能为空，
+      # 下面的步骤会用仓库名兜底。
+      - uses: actions/configure-pages@v5
+        id: pages
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: pnpm/action-setup@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: '22'
+          cache: pnpm
 
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve site base path
+        id: site
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          base="${PAGES_BASE_PATH:-/$repo}"
+          [[ "$base" == /* ]] || base="/$base"
+          [[ "$base" == */ ]] || base="$base/"
+          site_url="${PAGES_BASE_URL:-https://${GITHUB_REPOSITORY%%/*}.github.io${base%/}}"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "url=$site_url" >> "$GITHUB_OUTPUT"
+          echo "Using baseURL=$base / site.url=$site_url"
+
+      - name: Generate static site
+        env:
+          NUXT_APP_BASE_URL: ${{ steps.site.outputs.base }}
+          NUXT_SITE_URL: ${{ steps.site.outputs.url }}
+        run: pnpm generate
+
+      - name: Disable Jekyll and ensure SPA fallback
+        run: |
+          # Pages 默认用 Jekyll 处理产物，会忽略下划线开头的 _nuxt/ 目录；
+          # 没有这个空文件，所有 JS/CSS 都会 404。
+          touch .output/public/.nojekyll
+          # Nuxt generate 会产出 404.html 供客户端路由回退，兜一层保险。
+          test -f .output/public/404.html || cp .output/public/200.html .output/public/404.html
+
+      - uses: actions/upload-pages-artifact@v3
         with:
-          images: ${{ steps.image_name.outputs.name }}
-          tags: |
-            type=ref,event=branch
-            type=sha,format=short,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+          path: .output/public
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-
-  deploy:
-    name: Deploy to server
-    needs: image
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate deploy secrets
-        id: check
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          missing=()
-          [ -n "$SERVER_HOST" ]    || missing+=(SERVER_HOST)
-          [ -n "$SERVER_USER" ]    || missing+=(SERVER_USER)
-          [ -n "$SERVER_SSH_KEY" ] || missing+=(SERVER_SSH_KEY)
-          [ -n "$DEPLOY_PATH" ]    || missing+=(DEPLOY_PATH)
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "::warning title=Deploy skipped::Missing secrets: ${missing[*]}. Add them under Settings > Secrets and variables > Actions, then re-run this workflow."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Prepare SSH key
-        if: steps.check.outputs.skip != 'true'
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_PORT: ${{ secrets.SERVER_PORT }}
-          SERVER_KNOWN_HOSTS: ${{ secrets.SERVER_KNOWN_HOSTS }}
-          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          port="${SERVER_PORT:-22}"
-          if [ -n "$SERVER_KNOWN_HOSTS" ]; then
-            printf '%s\n' "$SERVER_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-          else
-            ssh-keyscan -H -p "$port" "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          fi
-          chmod 600 ~/.ssh/known_hosts
-          # ssh 用 -p，scp 用 -P，两者不能共用一份参数。
-          echo "SSH_OPTS=-i $HOME/.ssh/id_deploy -p $port -o StrictHostKeyChecking=yes -o ConnectTimeout=15" >> "$GITHUB_ENV"
-          echo "SCP_OPTS=-i $HOME/.ssh/id_deploy -P $port -o StrictHostKeyChecking=yes -o ConnectTimeout=15" >> "$GITHUB_ENV"
-
-      - name: Sync compose files to server
-        if: steps.check.outputs.skip != 'true'
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: |
-          # shellcheck disable=SC2086
-          ssh $SSH_OPTS "$SERVER_USER@$SERVER_HOST" "mkdir -p '$DEPLOY_PATH'"
-          # shellcheck disable=SC2086
-          scp $SCP_OPTS deploy/compose.prod.yaml "$SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/compose.yaml"
-          # shellcheck disable=SC2086
-          scp $SCP_OPTS deploy/nginx.conf "$SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/nginx.conf"
-
-      - name: Pull image & roll out
-        if: steps.check.outputs.skip != 'true'
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          APP_PORT: ${{ secrets.APP_PORT }}
-          IMAGE_BASE: ${{ needs.image.outputs.name }}
-          FULL_SHA: ${{ github.sha }}
-          GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-        run: |
-          image="$IMAGE_BASE:sha-${FULL_SHA:0:7}"
-          port="${APP_PORT:-3000}"
-          # 把变量转成 shell 赋值语句，和脚本正文一起从 stdin 送给远端 bash。
-          # 这样 token 不会出现在 ssh 命令行里（也就不会留在 ps / 日志中）。
-          {
-            printf 'IMAGE=%q\n' "$image"
-            printf 'DEPLOY_PATH=%q\n' "$DEPLOY_PATH"
-            printf 'APP_PORT=%q\n' "$port"
-            printf 'GHCR_TOKEN=%q\n' "$GHCR_TOKEN"
-            printf 'GHCR_USER=%q\n' "$GHCR_USER"
-            cat deploy/remote-deploy.sh
-          } | ssh $SSH_OPTS "$SERVER_USER@$SERVER_HOST" "bash -s"
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
