@@ -279,8 +279,10 @@ push 到 `main` 后，`.github/workflows/ci-cd.yml` 自动跑质量门禁、执�
 
 https://letengzz.github.io/Nomi-Admin-Nuxt/
 
-首次使用只需在仓库 `Settings > Pages > Build and deployment > Source` 选择
-**GitHub Actions**，之后每次 push 自动更新，也可以在 Actions 页手动 `Run workflow`。
+workflow 里的 `actions/configure-pages` / `deploy-pages` 会自动启用 Actions 来源；
+只有首次运行报 "GitHub Pages has not been enabled" 时，才需要到仓库
+`Settings > Pages > Build and deployment > Source` 手动选一次 **GitHub Actions**。
+之后每次 push 自动更新，也可以在 Actions 页手动 `Run workflow`。
 
 本地复现静态产物（Windows Git Bash 需要 `MSYS_NO_PATHCONV=1`，否则 `/xxx/`
 会被当成 POSIX 路径转换成 Windows 路径，污染 baseURL）：
