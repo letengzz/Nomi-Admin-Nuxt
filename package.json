@@ -11,6 +11,7 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "generate": "nuxt generate",
+    "generate:demo": "node scripts/generate-demo.mjs",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "// >>> TEMPLATE:SCRIPTS": "",

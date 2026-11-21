@@ -1,3 +1,5 @@
+import { callApi } from '../utils/api';
+
 export interface LoginPayload {
   userName: string;
   password: string;
@@ -47,15 +49,9 @@ export interface ResetPasswordPayload {
   newPassword: string;
 }
 
-interface ApiEnvelope<T> {
-  code: number;
-  msg: string;
-  data: T;
-}
-
 /** 登录请求。响应外壳在业务层剥离，后续换真实后端只改这一个文件。 */
 export async function fetchLogin(payload: LoginPayload): Promise<LoginResult> {
-  const res = await $fetch<ApiEnvelope<LoginResult>>('/api/auth/login', {
+  const res = await callApi<LoginResult>('/api/auth/login', {
     method: 'POST',
     body: payload,
   });
@@ -72,9 +68,10 @@ export async function fetchRegister(
   payload: RegisterPayload,
   request: typeof $fetch = $fetch,
 ): Promise<RegisterResult> {
-  const res = await request<ApiEnvelope<RegisterResult>>('/api/auth/register', {
+  const res = await callApi<RegisterResult>('/api/auth/register', {
     method: 'POST',
     body: payload,
+    request,
   });
   if (res.code !== 200 || !res.data?.userName) throw new Error(res.msg || '注册失败');
   return res.data;
@@ -90,9 +87,10 @@ export async function fetchSendResetCode(
   payload: SendResetCodePayload,
   request: typeof $fetch = $fetch,
 ): Promise<SendResetCodeResult> {
-  const res = await request<ApiEnvelope<SendResetCodeResult>>('/api/auth/password-code', {
+  const res = await callApi<SendResetCodeResult>('/api/auth/password-code', {
     method: 'POST',
     body: payload,
+    request,
   });
   if (res.code !== 200) throw new Error(res.msg || '验证码发送失败');
   // expiresIn / cooldown 缺失时给兜底值：前端只拿它们做提示，不该因此整个流程断掉。
@@ -108,9 +106,10 @@ export async function fetchResetPassword(
   payload: ResetPasswordPayload,
   request: typeof $fetch = $fetch,
 ): Promise<{ userName: string }> {
-  const res = await request<ApiEnvelope<{ userName: string }>>('/api/auth/password-reset', {
+  const res = await callApi<{ userName: string }>('/api/auth/password-reset', {
     method: 'POST',
     body: payload,
+    request,
   });
   if (res.code !== 200 || !res.data?.userName) throw new Error(res.msg || '密码重置失败');
   return res.data;
@@ -135,7 +134,7 @@ export interface LoginDepartment {
 export async function fetchLoginDepartments(
   request: typeof $fetch = $fetch,
 ): Promise<LoginDepartment[]> {
-  const res = await request<ApiEnvelope<{ list: LoginDepartment[] }>>('/api/auth/departments');
+  const res = await callApi<{ list: LoginDepartment[] }>('/api/auth/departments', { request });
   if (res.code !== 200) return [];
   // 登录页靠它填下拉：拿不到就退化成「只能手输账号」，不该整页报错。
   return res.data?.list ?? [];

@@ -23,6 +23,10 @@ const ENV_URL_KEY: Record<string, 'devUrl' | 'testUrl' | 'prodUrl'> = {
 };
 
 export default defineNitroPlugin((nitroApp) => {
+  // 演示构建没有数据库：canonical 直接沿用 nuxt.config 的 site.url
+  // （CI 里由 NUXT_SITE_URL 注入），不做这次必然失败的查询。
+  if (process.env.NUXT_PUBLIC_DEMO === '1') return;
+
   nitroApp.hooks.hook('site-config:init', async (ctx) => {
     try {
       const { seo, environment } = await loadSystemConfig();

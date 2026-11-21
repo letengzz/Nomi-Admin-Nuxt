@@ -25,6 +25,42 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
   version: string;
 };
 
+/**
+ * 演示构建（`NUXT_PUBLIC_DEMO=1`）需要预渲染的路径。
+ *
+ * 静态托管上没有 Nitro，`nuxt generate` 只会为「爬得到的链接」出 HTML。后台
+ * 整体是 `ssr: false`，首屏就是一个空壳，爬虫（包括 Nuxt 自己的爬取）什么都发现不了，
+ * 所以必须显式列出来 —— 否则直接打开 `/<repo>/admin/system/users` 会拿到 404。
+ *
+ * 列表与 `app/constants/layout.ts` 的菜单树一一对应（含带参数页面的固定入口）。
+ * 动态路由（如 `/admin/notice/123`）没法预渲染，由 404.html 的 SPA 兜底接管。
+ */
+const DEMO_PRERENDER_ROUTES = [
+  // 根路径在 routeRules 里是 301 到 /admin，静态托管上没有 Nitro 做跳转，
+  // 必须让 Nitro 在构建时把它压成一个带 meta-refresh 的 index.html，
+  // 否则直接打开站点域名会落到 404.html。
+  '/',
+  '/login',
+  '/register',
+  '/forget-password',
+  '/maintenance',
+  '/admin',
+  '/admin/analytics',
+  '/admin/orders',
+  '/admin/orders/detail',
+  '/admin/system/users',
+  '/admin/system/notices',
+  '/admin/system/departments',
+  '/admin/system/roles',
+  '/admin/system/rules',
+  '/admin/system/languages',
+  '/admin/system/settings',
+  '/admin/monitor/online',
+  '/admin/monitor/logs',
+  '/admin/profile',
+  '/admin/notice/create',
+];
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-01',
   devtools: { enabled: true },
@@ -87,6 +123,12 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       appName: 'Nomi Admin',
+      /**
+       * 演示模式：所有 `/api/**` 改由 `app/mock` 从内存应答，不发真实请求。
+       * 由 `NUXT_PUBLIC_DEMO=1` 打开（GitHub Pages 的静态构建就是这么来的），
+       * 本地 `pnpm dev` 默认关闭 —— 开发时要打真实接口，不然改完后端发现不了问题。
+       */
+      demo: process.env.NUXT_PUBLIC_DEMO === '1',
     },
   },
   // <<< TEMPLATE:RUNTIME
@@ -148,6 +190,12 @@ export default defineNuxtConfig({
   // 省掉每个请求的实时压缩。只作用于 public/ 与预渲染产物，不碰 server 代码。
   nitro: {
     compressPublicAssets: { gzip: true, brotli: true },
+    // 演示构建为每个后台页面预渲染一份 HTML 壳（见文件顶部的 DEMO_PRERENDER_ROUTES）。
+    // 正式构建保持空数组：真实部署由 Nitro 自己应答路由，不需要预生成。
+    prerender: {
+      crawlLinks: false,
+      routes: process.env.NUXT_PUBLIC_DEMO === '1' ? DEMO_PRERENDER_ROUTES : [],
+    },
   },
 
   app: {

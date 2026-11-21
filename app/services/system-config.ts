@@ -1,8 +1,8 @@
 /**
  * 系统配置接口封装。管理端三个接口走统一鉴权请求器，
- * 登录页那个是公开的，单独用 $fetch 并给出「接口挂了就仍然要验证码」的兜底。
+ * 登录页那个是公开的，单独用 callApi 并给出「接口挂了就仍然要验证码」的兜底。
  */
-import type { ApiEnvelope } from '../types/permission';
+import { callApi } from '../utils/api';
 import { apiFetch } from '../utils/request';
 
 export interface SiteConfig {
@@ -152,9 +152,7 @@ export async function uploadSiteImage(kind: 'logo' | 'favicon', file: File): Pro
 
 export async function fetchLoginConfig(): Promise<LoginConfig> {
   try {
-    const response = await $fetch<ApiEnvelope<LoginConfig>>('/api/auth/login-config', {
-      ignoreResponseError: true,
-    });
+    const response = await callApi<LoginConfig>('/api/auth/login-config');
     if (response?.code === 200 && response.data) return response.data;
   } catch {
     // 配置读不到时保持验证码开启，不能因为接口异常就悄悄放宽登录校验。

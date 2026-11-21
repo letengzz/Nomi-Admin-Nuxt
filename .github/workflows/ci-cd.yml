@@ -2,6 +2,11 @@ name: CI / GitHub Pages
 
 # 完整链路：质量门禁 → nuxt generate 静态化 → 发布到 GitHub Pages。
 #
+# 发布出去的是**演示站**，不是连数据库的生产站：Pages 上没有 Nitro、没有 MySQL，
+# 所以构建时注入 NUXT_PUBLIC_DEMO=1，所有 /api/** 请求在浏览器里由 app/mock
+# 从内存应答（数据来自 shared/constants/seed-data.ts，与后端种子同源）。
+# 登录页任意账号 + 任意密码都能进，进入后的增删改只在当前页面生效，刷新即复原。
+#
 # Pages 项目页挂在 /<repo>/ 子路径下，baseURL 不能写死，必须由
 # actions/configure-pages 的 base_path 输出决定（它来自 GitHub API，
 # 仓库名大小写也以它为准）。缺了这一步，HTML 里的 /_nuxt/ 资源会指向
@@ -100,8 +105,11 @@ jobs:
           echo "url=$site_url" >> "$GITHUB_OUTPUT"
           echo "Using baseURL=$base / site.url=$site_url"
 
-      - name: Generate static site
+      - name: Generate static demo site
         env:
+          # 演示模式：不连数据库，所有 /api/** 在浏览器里由 app/mock 从内存应答。
+          # 这个开关同时让 nuxt.config.ts 把后台每个页面预渲染成 HTML 壳。
+          NUXT_PUBLIC_DEMO: '1'
           NUXT_APP_BASE_URL: ${{ steps.site.outputs.base }}
           NUXT_SITE_URL: ${{ steps.site.outputs.url }}
         run: pnpm generate
@@ -111,8 +119,18 @@ jobs:
           # Pages 默认用 Jekyll 处理产物，会忽略下划线开头的 _nuxt/ 目录；
           # 没有这个空文件，所有 JS/CSS 都会 404。
           touch .output/public/.nojekyll
-          # Nuxt generate 会产出 404.html 供客户端路由回退，兜一层保险。
-          test -f .output/public/404.html || cp .output/public/200.html .output/public/404.html
+          # 深链兜底：预渲染只覆盖了固定路径（nuxt.config.ts 的 DEMO_PRERENDER_ROUTES），
+          # /admin/notice/123 这类带参数的路由没有被预生成。Pages 对未知路径返回
+          # 404.html，所以把 SPA 壳（200.html）覆盖过去 —— 浏览器拿到壳之后再按
+          # 地址栏的真实路径路由，深链才不至于停在 404 页面。
+          if [ -f .output/public/200.html ]; then
+            cp .output/public/200.html .output/public/404.html
+          else
+            echo "::warning::没有 200.html，跳过 SPA 兜底（后台深链可能 404）"
+          fi
+          # 兜底校验：后台首屏壳是预渲染的产物，缺了说明 prerender 没生效。
+          test -f .output/public/admin/index.html
+          test -f .output/public/login/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

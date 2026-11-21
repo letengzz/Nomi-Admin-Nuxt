@@ -5,7 +5,7 @@
  * 接口不可达时退回服务端同名默认值，保证页面至少有个能用的品牌名，
  * 而不是空白标题。
  */
-import type { ApiEnvelope } from '../types/permission';
+import { callApi } from '../utils/api';
 
 /** 环境标识：只认这三档，别的值一律当开发环境处理（宁可提示得保守）。 */
 export type AppEnv = 'development' | 'testing' | 'production';
@@ -94,9 +94,7 @@ function normalizeSiteInfo(data: Partial<SiteInfo>): SiteInfo {
 
 export async function fetchSiteInfo(): Promise<SiteInfo> {
   try {
-    const response = await $fetch<ApiEnvelope<Partial<SiteInfo>>>('/api/site', {
-      ignoreResponseError: true,
-    });
+    const response = await callApi<Partial<SiteInfo>>('/api/site');
     if (response?.code === 200 && response.data?.name) return normalizeSiteInfo(response.data);
   } catch {
     // 首屏品牌失败不该让整张页面挂掉，退回默认值即可。

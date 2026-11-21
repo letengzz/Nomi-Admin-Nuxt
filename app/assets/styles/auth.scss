@@ -39,8 +39,7 @@
 // 文档 17.9：固定 650px + overflow hidden 会在错误提示变多时静默裁掉底部。
 // 注册页字段少、余量够，但把纵向改成可滚动，加字段后也不会把「去登录」吃掉。
 .auth-wrap.auth-wrap--register {
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border, #e2e8f0) transparent;
 }

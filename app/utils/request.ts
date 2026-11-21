@@ -10,6 +10,7 @@
  */
 import type { ApiEnvelope } from '../types/permission';
 import { useUserStore } from '../stores/user';
+import { callApi } from './api';
 
 export class ApiRequestError extends Error {
   readonly code: number;
@@ -38,10 +39,10 @@ async function refreshSession(): Promise<boolean> {
   if (!user.refreshToken) return false;
 
   try {
-    const res = await $fetch<ApiEnvelope<{ token: string; refreshToken: string }>>(
-      '/api/admin/refresh-token',
-      { method: 'POST', body: { refreshToken: user.refreshToken } },
-    );
+    const res = await callApi<{ token: string; refreshToken: string }>('/api/admin/refresh-token', {
+      method: 'POST',
+      body: { refreshToken: user.refreshToken },
+    });
     if (res.code !== 200 || !res.data?.token) return false;
     user.setToken(res.data.token, res.data.refreshToken);
     return true;
@@ -77,14 +78,11 @@ export async function apiFetch<T>(url: string, options: RequestOptions = {}): Pr
   const headers: Record<string, string> = {};
   if (user.accessToken) headers.batoken = user.accessToken;
 
-  const response = await $fetch<ApiEnvelope<T>>(url, {
+  const response = await callApi<T>(url, {
     method: options.method ?? 'GET',
-    body: options.body as Record<string, unknown> | undefined,
+    body: options.body,
     query: options.query,
     headers,
-    // 4xx/5xx 也交给我们看 body：服务端用 HTTP 200 + 业务码，但反向代理/框架
-    // 仍可能在极端情况下返回 4xx，这时体里通常也有 {code,msg}。
-    ignoreResponseError: true,
   });
 
   const envelope = response as ApiEnvelope<T> | undefined;

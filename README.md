@@ -70,6 +70,7 @@ pnpm preview
 | `pnpm dev`           | 启动 Nuxt 开发服务                           |
 | `pnpm build`         | 构建 SSR / Nitro 生产产物，输出到 `.output/` |
 | `pnpm generate`      | 生成静态站点                                 |
+| `pnpm generate:demo` | 生成**带假数据**的静态演示站（不连后端）      |
 | `pnpm preview`       | 预览已构建或已生成的产物                     |
 | `pnpm lint`          | 执行 ESLint 检查                             |
 | `pnpm lint:fix`      | 自动修复可修复的 ESLint 问题                 |
@@ -412,8 +413,24 @@ docker compose --profile proxy up --build -d
 1. **ci**：`pnpm lint`、`pnpm lint:style`、`pnpm typecheck`、`pnpm test`。
    PR 只跑这一步，不发布。
 2. **pages**：`actions/configure-pages` 读取站点真实 `base_path` / `base_url`
-   → 注入 `NUXT_APP_BASE_URL` / `NUXT_SITE_URL` 后执行 `pnpm generate`
-   → 写入 `.nojekyll` → 上传产物 → `actions/deploy-pages` 发布。
+   → 注入 `NUXT_APP_BASE_URL` / `NUXT_SITE_URL` / `NUXT_PUBLIC_DEMO=1` 后执行
+   `pnpm generate` → 写入 `.nojekyll`、补 SPA 兜底 → 上传产物 → `actions/deploy-pages` 发布。
+
+### 发布出去的是演示站
+
+Pages 上没有 Nitro，也没有 MySQL，所以构建时打开 `NUXT_PUBLIC_DEMO=1`：
+
+- `app/utils/api.ts` 的 `callApi` 是唯一出口。演示模式下它不调 `$fetch`，
+  改从 `app/mock` 取数据 —— 页面代码一行都不用改。
+- `app/mock` 的数据来自 `shared/constants/seed-data.ts`，与后端首次建表的种子
+  同源（同一份菜单、角色、部门、账号），演示里看到的菜单顺序与真机一致。
+- 登录页任意账号 + 任意密码都能进；增删改只改内存，刷新即复原。
+- `nuxt.config.ts` 的 `DEMO_PRERENDER_ROUTES` 会把后台每个页面预渲染成 HTML 壳，
+  直接打开 `/<repo>/admin/system/users` 这类深链不会 404。
+- 构建期不连数据库：`server/plugins/database.ts` 与 `seo-site-config.ts` 在
+  演示构建下直接短路，避免 CI 上等超时、或误写生产库。
+
+想本地复现同一份结果：`pnpm generate:demo`，然后 `npx serve .output/public`。
 
 ### 两个不能省的细节
 

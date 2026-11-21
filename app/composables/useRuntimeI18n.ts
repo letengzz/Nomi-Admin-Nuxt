@@ -14,7 +14,7 @@
  */
 import { computed, isRef, toValue, type Ref } from 'vue';
 import { mergeMessages, resolvePreferredLocale } from '#shared/utils/i18n';
-import type { ApiEnvelope } from '../types/permission';
+import { callApi } from '../utils/api';
 
 /** 与 nuxt.config.ts 的 i18n.defaultLocale 一致；接口读不到时的最后兜底。 */
 const DEFAULT_RUNTIME_LOCALE = 'zh';
@@ -95,7 +95,7 @@ function localeState(): Ref<RuntimeLocale[]> {
 export async function loadRuntimeLocales(): Promise<RuntimeLocale[]> {
   const state = localeState();
   try {
-    const res = await $fetch<ApiEnvelope<LocalesPayload>>('/api/i18n/locales');
+    const res = await callApi<LocalesPayload>('/api/i18n/locales');
     if (res.code === 200 && res.data?.locales?.length) {
       state.value = res.data.locales;
       return state.value;
@@ -150,7 +150,7 @@ export async function applyRuntimeMessages(i18n: RuntimeI18nLike): Promise<void>
 
   let payload: MessagesPayload | undefined;
   try {
-    const res = await $fetch<ApiEnvelope<MessagesPayload>>('/api/i18n/messages');
+    const res = await callApi<MessagesPayload>('/api/i18n/messages');
     if (res.code === 200) payload = res.data;
   } catch {
     return;

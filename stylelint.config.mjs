@@ -32,6 +32,19 @@ export default {
         ignoreProperties: ['-webkit-text-size-adjust'],
       },
     ],
+    // 类名用 BEM：`.nomi-grid--4`（修饰符）与 `.el-input__wrapper`（元素）
+    // 都会被默认的 kebab-case 判错，而后者是 Element Plus 自己的命名，改不了。
+    // 这条规则仍然在管「别写 .FooBar / .foo_bar」，只是把 `__` `--` 放行。
+    'selector-class-pattern': [
+      '^[a-z][a-z0-9]*(-[a-z0-9]+)*(__[a-z0-9]+(-[a-z0-9]+)*)?(--[a-z0-9]+(-[a-z0-9]+)*)?$',
+      { resolveNestedSelectors: true },
+    ],
+    // 断点继续写 `max-width`：区间写法 (width <= 1180px) 要 Safari 16.4+，
+    // 旧 iPad 会把整条媒体查询当未知语法丢掉 —— 布局全崩，比写法「过时」严重。
+    'media-feature-range-notation': 'prefix',
+    // Vue 的动画类按「一行一个状态」排（enter-from / leave-to 对照着看），
+    // 拆成多行会让 4 行状态机变成 16 行，反而看不出配对关系。
+    'declaration-block-single-line-max-declarations': null,
   },
   ignoreFiles: [
     '**/node_modules/**',

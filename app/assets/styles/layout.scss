@@ -16,6 +16,7 @@
   --nomi-card: var(--bg);
   --nomi-page-bg: var(--bg-subtle);
   --nomi-border: var(--border);
+
   // 「亮色菜单风格」的调色板。放在变量里而不是写死 #ffffff，是因为暗暗色界面里
   // 一整块白侧栏会比内容区还亮（见 constants/layout.ts 的 LIGHT 预设）。
   --nomi-menu-bg: #fff;
@@ -146,6 +147,7 @@ $transition-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
   [class*='nomi-slide-'],
   [class*='nomi-fade-'] {
     transition: none !important;
+
     // 只禁 transition 会让元素带着位移瞬间闪一下，位移本身也要去掉。
     transform: none !important;
   }
