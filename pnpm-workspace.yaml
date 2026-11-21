@@ -27,7 +27,10 @@
 # >>> TEMPLATE:ALLOW_BUILDS
 allowBuilds:
   '@parcel/watcher': false
-  es5-ext: set this to true or false
+  # es5-ext 的 postinstall 只跑 node -e "require('./_postinstall')"，
+  # 作用是打印一行「本项目已不再维护」的提示，不产出任何文件；
+  # 关掉不影响运行时（它的代码在 dist/ 里静态存在）。
+  es5-ext: false
   esbuild: false
   sharp: true
   unrs-resolver: false
