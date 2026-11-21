@@ -13,6 +13,7 @@
  */
 import { APP_VERSION, BUILD_TIME } from '../utils/version';
 import { checkStorageCompatibility } from '../utils/storage';
+import { purgeOutdatedStorage, STORAGE_SCHEMA_VERSION } from '../utils/storage-key';
 
 export default defineNuxtPlugin((nuxtApp) => {
   nuxtApp.hook('app:mounted', () => {
@@ -21,6 +22,16 @@ export default defineNuxtPlugin((nuxtApp) => {
       console.warn(
         '[bootstrap] localStorage 不可用：主题与登录态将无法持久化。' +
           '常见原因是隐私模式、禁用站点数据或跨域 iframe。',
+      );
+    }
+
+    // 只保留当前 schema 版本的持久化键：升级后残留的旧键永远不会再被读到，
+    // 留着只会占配额，而配额打满时症状是「设置改了保存不上」。
+    const removed = purgeOutdatedStorage();
+    if (import.meta.dev && removed.length > 0) {
+      console.info(
+        `[bootstrap] 已清理 ${removed.length} 个非 v${STORAGE_SCHEMA_VERSION} 的持久化键`,
+        removed,
       );
     }
 

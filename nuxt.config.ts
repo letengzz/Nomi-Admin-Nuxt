@@ -79,7 +79,8 @@ export default defineNuxtConfig({
   // <<< TEMPLATE:VITE
 
   // >>> TEMPLATE:CSS
-  css: ['virtual:uno.css', '~/assets/styles/tokens.scss', '~/assets/styles/base.css', 'element-plus/dist/index.css'],
+  // layout.scss 排在最后：它是布局层的全局选择器，需要能压过组件库的默认样式。
+  css: ['virtual:uno.css', '~/assets/styles/tokens.scss', '~/assets/styles/base.css', 'element-plus/dist/index.css', '~/assets/styles/layout.scss', '~/assets/styles/auth.scss'],
   // <<< TEMPLATE:CSS
 
   // >>> TEMPLATE:RUNTIME
@@ -94,8 +95,25 @@ export default defineNuxtConfig({
   ssr: true,
   routeRules: {
     // 混合渲染：公开页面预渲染成静态，后台走 SPA。按你的实际路由调整。
-    '/': { prerender: true },
+    //
+    // 根路径没有介绍页了（app/pages/index.vue 已删除），直接进后台主界面。
+    // SSR 下这段重定向由 Nitro 在服务端完成，浏览器不会先拿到 404 再跳。
+    // /en 那条是给 prefix_except_default 的英文路由用的，保证带前缀时同样落地。
+    '/': { redirect: '/admin' },
+    '/en': { redirect: '/en/admin' },
+    // 设计文档里的 /auth/register 是 hash 路由模板的路径；Nuxt 用文件路由 /register，
+    // 保留一条重定向让旧书签与文档验收路径也能到达。
+    '/auth/register': { redirect: '/register' },
+    // 同理：文档里的 /#/auth/forget-password。
+    '/auth/forget-password': { redirect: '/forget-password' },
+    // 后台主布局依赖视口宽度与 localStorage 偏好，整体走 SPA 更省心。
+    // i18n 的 /en 前缀是另一套 URL，必须一并声明：否则 /en/admin 会走 SSR，
+    // 服务端按「桌面顶栏」输出、客户端水合时按手机宽度换成「紧凑顶栏」，
+    // 直接报 hydration mismatch（移动端适配暴露出来的既有缺口）。
+    '/admin': { ssr: false },
     '/admin/**': { ssr: false },
+    '/en/admin': { ssr: false },
+    '/en/admin/**': { ssr: false },
   },
   // <<< TEMPLATE:RENDER
 
@@ -118,6 +136,13 @@ export default defineNuxtConfig({
   // 监听所有网卡：手机真机、局域网同事都能直接打开，不用每次加 --host。
   devServer: { host: '0.0.0.0' },
 
+  // SPA 启动占位页（相对 srcDir，即 app/spa-loading-template.html）。
+  //
+  // /admin/** 是 ssr:false：服务端只吐一个空壳 HTML，脚本下载 + 水合 + 路由守卫
+  // 里那次权限接口期间，浏览器里就是一张纯白页。给一张带转圈的品牌占位页，
+  // 把「白屏」变成「正在加载」。内容是纯静态 HTML，换文案/配色直接改那个文件。
+  spaLoadingTemplate: 'spa-loading-template.html',
+
   // 构建期预压缩：等价于传统 Vite 项目里的 vite-plugin-compression，
   // 但由 Nitro 直接产出 .gz / .br。Nginx 打开 gzip_static 后直接吐静态压缩文件，
   // 省掉每个请求的实时压缩。只作用于 public/ 与预渲染产物，不碰 server 代码。
@@ -130,9 +155,12 @@ export default defineNuxtConfig({
     // 否则 HTML 里的 /_nuxt/ 资源路径会指向域名根目录而全部 404。
     baseURL: process.env.NUXT_APP_BASE_URL || '/',
     head: {
-      // 不写 htmlAttrs.lang / viewport：
-      //   · lang 由 @nuxtjs/i18n 按当前 locale 自动写入，写死会把英文页面也标成 zh-CN；
-      //   · viewport 是 Nuxt 的默认值，重复声明只会让 nuxt-seo 报警。
+      // 不写 htmlAttrs.lang：由 @nuxtjs/i18n 按当前 locale 自动写入，
+      // 写死会把英文页面也标成 zh-CN。
+      // viewport 走 Nuxt 的专用配置项（不是在 meta 里重复声明，避免 SEO 警告）：
+      // viewport-fit=cover 让 iOS 的 env(safe-area-inset-*) 生效，抽屉与页脚
+      // 才不会被 Home Indicator 压住。
+      viewport: 'width=device-width, initial-scale=1, viewport-fit=cover',
       title: 'Nomi Admin',
       meta: [{ name: 'description', content: '基于 Nuxt 4 的企业级中后台模板' }],
       script: [

@@ -206,6 +206,32 @@ import type { UserInfo } from '#shared/types/user.types';
 | 路由中间件             | 语义化小写命名                     | `auth.ts`、`permission.ts`                          |
 | 测试文件               | 与被测对象对应，以 `.spec.ts` 结尾 | `user.service.spec.ts`                              |
 
+### 状态管理
+
+六个 store + 一层持久化，对应 `docs/状态管理.md` 的方案，按 Nuxt 4 + VueUse 重写：
+
+| Store    | 文件                     | 持久化键                                | 职责                                                     |
+| -------- | ------------------------ | --------------------------------------- | -------------------------------------------------------- |
+| 布局偏好 | `app/stores/layout.ts`   | `nomi:v1:layout`                        | 菜单类型/宽度、容器宽度、圆角、各区域软开关               |
+| 主题     | `app/stores/setting.ts`  | `nomi:color-mode`、`nomi:theme-color`   | 主色与明暗模式（首帧由 `<head>` 内联脚本读同一对键）     |
+| 用户     | `app/stores/user.ts`     | `nomi:v1:user`                          | token、身份、语言、搜索历史；登出清理与「换人」判断       |
+| 菜单     | `app/stores/menu.ts`     | 不持久化                                | 菜单树、扁平表、首页路径、动态路由注销函数               |
+| 标签页   | `app/stores/worktab.ts`  | `nomi:v1:worktab`                       | 多标签状态与 `keepAliveExclude`                          |
+| 表格     | `app/stores/table.ts`    | `nomi:v1:table`                         | 尺寸、斑马纹、边框、表头底色                             |
+
+- 持久化不用 `pinia-plugin-persistedstate`，而是 `usePersistedState()`
+  （`app/composables/usePersistedState.ts`）：内部是 `useStorage` + `skipHydrate`，
+  既保留跨标签页同步，又避免水合时用 SSR 快照覆盖用户真正的偏好。
+- 键由 `app/utils/storage-key.ts` 统一生成，格式 `nomi:v{schema}:{name}`。版本段只随
+  **持久化结构**变化，不跟应用版本走；`v1` 之前的 `nomi:layout`、`nomi:worktabs`
+  等老键会在首次读取时自动搬迁，升级不会重置用户偏好。
+- 主题键刻意不带版本段：`<head>` 内联脚本必须在首帧同步读到它，而迁移只能发生在
+  JS 加载之后。
+- `logOut()` 清凭证、身份与动态路由，保留语言、搜索历史与布局偏好；标签页按
+  「是否换了个人」决定保留还是清空（`checkAndClearWorktabs`）。
+- store 一律不调用 `navigateTo`：关标签、登出只返回「接下来该去哪」，导航留给组件，
+  这样状态层可以在裸 vitest 里测（见 `test/state-layer.spec.ts`）。
+
 ## 配置说明
 
 ### 应用与运行期配置
@@ -230,6 +256,52 @@ import type { UserInfo } from '#shared/types/user.types';
 `.env` 已被 Git 忽略，不要提交密钥。部署前还应将 `site.url` 从
 `https://example.com` 改为真实域名，并统一 `site.name`、页面标题和 i18n 中的
 默认应用名称。
+
+### 权限系统与 MySQL
+
+权限系统（菜单/按钮/接口同源 RBAC、双 token + 409 续期、非超管只看本部门及子部门的部门数据范围）的完整说明见
+[`docs/权限系统实现.md`](docs/权限系统实现.md)。
+
+```bash
+cp .env.example .env   # 填 MYSQL_PASSWORD 与 TOKEN_SECRET
+pnpm dev               # 首次启动自动建库、建表、写入种子数据
+```
+
+| 环境变量                             | 默认值      | 说明                                    |
+| ------------------------------------ | ----------- | --------------------------------------- |
+| `MYSQL_HOST` / `MYSQL_PORT`          | `127.0.0.1` | MySQL 地址与端口                        |
+| `MYSQL_USER` / `MYSQL_PASSWORD`      | `root` / 空 | 账号需有 `CREATE` 权限才能自动建库      |
+| `MYSQL_DATABASE`                     | `nomi_admin`| 库名只允许字母、数字、下划线            |
+| `MYSQL_POOL_SIZE`                    | `10`        | 连接池上限                              |
+| `TOKEN_SECRET`                       | 开发默认值  | token 的 HMAC 密钥，**上线必须改**      |
+
+首次启动会创建三个演示账号（密码均为 `123456`），分别挂在三个部门下，登录页「选择部门」
+会自动把对应账号填进表单：`super`（总经办 / 超级管理员，`'*'` 全权限）、
+`admin`（技术中心 / 管理员）、`user`（市场运营中心 / 普通用户），
+另有 8 个成员分布在前端组、后端组、产品设计中心等部门。
+
+首页菜单、按钮权限、接口验权都由数据库里的 `permission_rule` / `role` 驱动，
+角色带稳定编码（`super` / `admin` / `member`），改角色名不影响代码里的引用。
+账号统一存在 `user` 表，**没有账号类型字段**——能进后台、看到什么，全看它挂的角色；
+部门（`department`）只用于归档、筛选与登录页选择，不参与鉴权。改授权不需要改代码。
+
+多语言文案由「系统管理 → 语言管理」维护：首次启动会把 `i18n/locales/*.json` 的
+526 个词条、1052 条译文导入数据库，页面上改完立即生效（静态语言文件作为兜底）。
+改过 JSON 后执行 `pnpm lang:sync` 重新生成导入种子；新增语言还需在
+`nuxt.config.ts` 的 `i18n.locales` 注册才能出现在语言切换菜单。
+
+系统配置（站点 / 安全 / 登录 / 邮件 / 存储 / 环境 / SEO 七个区块）的默认值也会在首次
+启动时整份写入 `system_config`，装完打开「系统配置」页看到的就是库里的值；
+某个区块「恢复默认」= 删掉该区块的行，读取时回落到代码里的 `DEFAULT_CONFIG`。
+
+启动日志会说明这次初始化到底写了什么，例如：
+
+```text
+[db] 已自动创建 数据库 nomi_admin / 表 ... system_config, token, user, user_role
+[db] 种子数据已写入：语言 2 / 部门 10 / 菜单/权限节点 55 / 角色 3 / 系统配置 43 / 账号 11
+```
+
+第二次启动不会再写任何数据，只打印「库与表已存在且种子齐备，本次不做任何写入」。
 
 ### 样式入口
 
@@ -358,16 +430,14 @@ docker compose --profile proxy up --build -d
 
 ## 后续业务扩展建议
 
-在实现完整后台时，可基于现有目录逐步补充：
+登录、Token 刷新、路由守卫，用户 / 部门 / 角色 / 菜单按钮级权限与动态路由，
+后台布局与多标签页、统一请求与错误处理，都已具备，细节见
+[`docs/权限系统实现.md`](docs/权限系统实现.md)。可以继续补充的方向：
 
-- 登录、退出、Token 刷新和路由认证守卫。
-- 用户、角色、菜单、按钮级权限与动态路由。
-- 后台布局、侧边栏、面包屑、多标签页和主题设置。
-- 统一请求错误处理、消息提示、加载状态与异常页面。
-- 字典管理、表格分页、表单校验和文件上传等通用能力。
-- CI 质量门禁、构建缓存、日志、监控与错误追踪。
-
-以上属于后续实现方向，不应被理解为当前模板已经提供的功能。
+- 字典管理、文件上传、导入导出等通用能力。
+- 会员端（前台）独立登录与权限体系。
+- 部门维度的数据范围（当前部门只做归档，不参与鉴权）。
+- CI 质量门禁、构建缓存、日志采集、监控与错误追踪。
 
 ## License
 

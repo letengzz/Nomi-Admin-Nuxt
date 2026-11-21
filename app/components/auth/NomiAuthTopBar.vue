@@ -5,18 +5,23 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { ElDropdown, ElDropdownItem, ElDropdownMenu } from 'element-plus';
-import { AUTH_BRAND_NAME } from '../../constants/auth';
 import { THEME_COLORS } from '../../utils/theme';
+import NomiIcon from '../layout/NomiIcon.vue';
+import NomiLogo from '../layout/NomiLogo.vue';
 import { useSettingStore } from '../../stores/setting';
+import { useSiteStore } from '../../stores/site';
 import { useUserStore } from '../../stores/user';
 
 const { locale, t } = useI18n();
 const switchLocalePath = useSwitchLocalePath();
 const setting = useSettingStore();
+const site = useSiteStore();
 const user = useUserStore();
 
 // 主题偏好存在 localStorage，SSR 阶段拿不到：水合完成后再切换图标，避免 mismatch。
 const hydrated = ref(false);
+// 只驱动语言下拉的展开态视觉，不参与切换逻辑。
+const languageOpen = ref(false);
 onMounted(() => {
   hydrated.value = true;
 });
@@ -46,18 +51,9 @@ function changeThemeColor(color: string): void {
 <template>
   <div class="auth-topbar">
     <div class="auth-topbar-brand">
-      <svg viewBox="0 0 46 46" width="46" height="46" aria-hidden="true">
-        <rect x="2" y="2" width="42" height="42" rx="13" fill="var(--el-color-primary, #5d87ff)" />
-        <path
-          d="M14 32V14l18 18V14"
-          fill="none"
-          stroke="#fff"
-          stroke-width="4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-      <span>{{ AUTH_BRAND_NAME }}</span>
+      <!-- ArtLogo → NomiLogo：全站（含后台侧栏）共用同一枚品牌标记。 -->
+      <NomiLogo :size="46" />
+      <span>{{ site.name }}</span>
     </div>
 
     <div class="auth-tools">
@@ -93,18 +89,14 @@ function changeThemeColor(color: string): void {
         </button>
       </div>
 
-      <ElDropdown @command="changeLanguage">
-        <button type="button" class="tool-btn" :aria-label="t('login.theme.language')">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path
-              d="M4 5h9M8.5 5v2c0 4-1.8 7.5-4.5 9.5M6 11c1.4 2.6 3.7 4.5 6.5 5.5M13 20l4-9 4 9M14.6 17h4.8"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+      <ElDropdown @command="changeLanguage" @visible-change="languageOpen = $event">
+        <button
+          type="button"
+          class="tool-btn"
+          :class="{ 'is-active': languageOpen }"
+          :aria-label="t('login.theme.language')"
+        >
+          <NomiIcon name="translate" :size="20" />
         </button>
         <template #dropdown>
           <ElDropdownMenu>
@@ -115,7 +107,7 @@ function changeThemeColor(color: string): void {
         </template>
       </ElDropdown>
 
-      <button type="button" class="tool-btn" :aria-label="t('login.theme.dark')" @click="setting.toggleDark()">
+      <button type="button" class="tool-btn" :aria-label="t('login.theme.dark')" @click="setting.toggleDark($event.currentTarget)">
         <svg v-if="isDark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.6" />
           <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -158,6 +150,9 @@ function changeThemeColor(color: string): void {
 }
 
 .tool-btn {
+  --nomi-lang-secondary-opacity: 0.8;
+  --nomi-lang-marker-opacity: 0;
+
   display: inline-flex;
   width: 32px;
   height: 32px;
@@ -172,9 +167,16 @@ function changeThemeColor(color: string): void {
   transition: color 0.3s ease, background-color 0.3s ease;
 }
 
-.tool-btn:hover {
+.tool-btn:hover,
+.tool-btn.is-active {
+  --nomi-lang-secondary-opacity: 1;
+
   color: var(--el-color-primary, #5d87ff);
   background: var(--bg-subtle, #f8fafc);
+}
+
+.tool-btn.is-active {
+  --nomi-lang-marker-opacity: 1;
 }
 
 .palette {

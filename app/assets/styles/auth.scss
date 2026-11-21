@@ -1,0 +1,423 @@
+// ---------------------------------------------------------------------------
+// 授权页共用外观（登录 / 注册 / 后续认证页）。
+//
+// 原先这些规则写在 app/pages/login.vue 的全局 <style> 里，注册页想复用就得
+// 反向 import 登录页的样式文件，形成「改登录页会静默影响注册页」的跨目录依赖
+// （docs/注册页设计.md 2.1 / 16.4）。这里抽成独立样式表，由 nuxt.config.ts
+// 统一引入：三页共用一份外壳，彼此不互相引用。
+//
+// 所有类名都带 auth- / nomi-register- 前缀，全局生效也不会污染后台页面。
+// ---------------------------------------------------------------------------
+.auth-page {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg, #fff);
+  color: var(--fg, #0f172a);
+}
+
+.auth-panel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+// absolute + inset:0 + 定宽高 + margin:auto = 完美的水平垂直居中，
+// 且不与入场动画的 transform 冲突（文档 2.3）。
+.auth-wrap {
+  position: absolute;
+  inset: 0;
+  width: 440px;
+  height: 650px;
+  padding: 5px 0;
+  margin: auto;
+  overflow: hidden;
+  animation: slideinright 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+// 文档 17.9：固定 650px + overflow hidden 会在错误提示变多时静默裁掉底部。
+// 注册页字段少、余量够，但把纵向改成可滚动，加字段后也不会把「去登录」吃掉。
+.auth-wrap.auth-wrap--register {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #e2e8f0) transparent;
+}
+
+.auth-form {
+  height: 100%;
+  padding: 40px 0;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg, #0f172a);
+}
+
+.auth-subtitle {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--fg-muted, #64748b);
+}
+
+.auth-form .el-form {
+  margin-top: 25px;
+}
+
+// 注册页表单上边距 30px（文档 20.1），与登录页 25px 的差异在此显式声明。
+.auth-form--register .el-form {
+  margin-top: 30px;
+}
+
+.auth-form .el-form-item {
+  margin-bottom: 18px;
+}
+
+.auth-form .el-input__wrapper,
+.auth-form .el-select__wrapper {
+  min-height: 40px;
+  background: var(--bg, #fff);
+  box-shadow: 0 0 0 1px var(--border, #e2e8f0) inset;
+}
+
+.auth-form .el-input__wrapper.is-focus,
+.auth-form .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--el-color-primary, #5d87ff) inset;
+}
+
+.auth-form .el-button.auth-control {
+  width: 100%;
+  height: 40px;
+  font-size: 14px;
+}
+
+.auth-form .el-checkbox__label {
+  font-size: 14px;
+  color: var(--fg-muted, #64748b);
+}
+
+.auth-verify-wrap {
+  position: relative;
+  margin-top: 24px;
+  padding-bottom: 20px;
+}
+
+.auth-verify-cover {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: border-color 0.3s ease;
+}
+
+.auth-verify-cover.is-error {
+  border-color: #ff4e4f;
+}
+
+.auth-verify-error {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  margin: 8px 0 0;
+  padding: 0 1px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f56c6c;
+  transform: translateY(0);
+  transition: transform 0.3s ease;
+}
+
+.auth-verify-error.is-visible {
+  transform: translateY(40px);
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.auth-submit {
+  margin-top: 30px;
+}
+
+.auth-register {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--fg-muted, #64748b);
+}
+
+.auth-demo-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--fg-muted, #64748b);
+  opacity: 0.8;
+}
+
+.auth-link {
+  padding: 0;
+  font-size: 14px;
+  color: var(--el-color-primary, #5d87ff);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.auth-link:hover {
+  border: 0;
+  text-decoration: underline;
+}
+
+@keyframes slideinright {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 注册页表单（NomiRegisterForm / NomiPrivacyPolicy）
+// ---------------------------------------------------------------------------
+.nomi-register-field .el-input__prefix {
+  color: var(--fg-muted, #64748b);
+}
+
+.nomi-register-field .el-input__prefix-inner {
+  align-items: center;
+}
+
+.nomi-register-agreement {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.nomi-register-agreement .el-checkbox {
+  height: auto;
+  margin-right: 0;
+}
+
+// 链接移出 ElCheckbox 的 label：点它只开弹窗，不会误勾选 / 误导航（17.3 / 17.10）。
+.nomi-register-policy-link {
+  padding: 0;
+  font-size: 14px;
+  color: var(--el-color-primary, #5d87ff);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.nomi-register-policy-link:hover {
+  text-decoration: underline;
+}
+
+.nomi-register-submit {
+  margin-top: 15px;
+}
+
+.nomi-register-submit-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+// 局部 vRipple 指令生成的圆：文档 14.1 的水波纹，不引入全局指令注册。
+.nomi-register-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 42%);
+  pointer-events: none;
+  transform: scale(0);
+  animation: nomi-register-ripple 620ms cubic-bezier(0.3, 0, 0.2, 1) forwards;
+}
+
+@keyframes nomi-register-ripple {
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+.nomi-register-footer {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--fg-muted, #64748b);
+}
+
+.nomi-register-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-muted, #64748b);
+  opacity: 0.8;
+}
+
+.nomi-register-policy-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--fg-muted, #64748b);
+  white-space: pre-line;
+}
+
+.nomi-register-policy-version {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--fg-muted, #64748b);
+  opacity: 0.75;
+}
+
+// ---------------------------------------------------------------------------
+// 忘记密码页（NomiForgetPasswordForm）
+//
+// 两步表单的内容高度约 470px，仍在外壳的 560px 内容区内；
+// 纵向仍允许滚动：加字段 / 校验提示变多时不会像原版那样被 overflow:hidden 静默裁掉。
+// ---------------------------------------------------------------------------
+.auth-wrap.auth-wrap--forget {
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #e2e8f0) transparent;
+}
+
+.auth-form--forget .el-form {
+  margin-top: 22px;
+}
+
+.nomi-forget-field .el-input__prefix {
+  color: var(--fg-muted, #64748b);
+}
+
+.nomi-forget-field .el-input__prefix-inner {
+  align-items: center;
+}
+
+// 验证码 + 行内「获取验证码」按钮：输入框吃掉剩余宽度，按钮固定 118px。
+.nomi-forget-code {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.nomi-forget-code .el-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nomi-forget-code-btn {
+  flex: 0 0 118px;
+  height: 40px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+// 演示环境把验证码直接提示出来（生产构建里这一行不会渲染）。
+.nomi-forget-devcode {
+  margin: -8px 0 14px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-color-primary, #5d87ff);
+  background: var(--el-color-primary-light-9, #f0f5ff);
+  border-radius: 6px;
+}
+
+.nomi-forget-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+// Element Plus 会给相邻按钮补 margin-left:12px，纵向排列时必须清掉。
+.nomi-forget-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.nomi-forget-submit {
+  position: relative;
+  overflow: hidden;
+}
+
+// 局部 vRipple 指令生成的圆：与注册页同一种水波纹，不引入全局指令注册。
+.nomi-forget-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 42%);
+  pointer-events: none;
+  transform: scale(0);
+  animation: nomi-forget-ripple 620ms cubic-bezier(0.3, 0, 0.2, 1) forwards;
+}
+
+@keyframes nomi-forget-ripple {
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+.nomi-forget-footer {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--fg-muted, #64748b);
+}
+
+.nomi-forget-hint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-muted, #64748b);
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .auth-wrap {
+    animation: none;
+  }
+
+  .auth-title {
+    font-size: 30px;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-wrap {
+    width: 100%;
+    padding: 5px 28px;
+  }
+
+  .auth-title {
+    padding-top: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-wrap {
+    animation: none;
+  }
+
+  .nomi-register-ripple,
+  .nomi-forget-ripple {
+    animation: none;
+  }
+}

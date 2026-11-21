@@ -5,6 +5,7 @@
 .nitro
 .cache
 .nuxtrc
+data
 dist
 
 # Node dependencies

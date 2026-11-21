@@ -27,7 +27,9 @@
 # >>> TEMPLATE:ALLOW_BUILDS
 allowBuilds:
   '@parcel/watcher': false
+  es5-ext: set this to true or false
   esbuild: false
   sharp: true
   unrs-resolver: false
+
 # <<< TEMPLATE:ALLOW_BUILDS

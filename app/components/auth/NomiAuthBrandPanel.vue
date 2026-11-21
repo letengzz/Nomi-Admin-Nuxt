@@ -4,26 +4,19 @@
  * 插画直接用内联 SVG + CSS 变量（替代文档里的 fetch SVG / v-html 换色方案），
  * 因此换主色、切明暗时插画自动跟随，且不存在 v-html 的注入面。
  */
-import { AUTH_BRAND_NAME } from '../../constants/auth';
+import NomiLogo from '../layout/NomiLogo.vue';
+import { useSiteStore } from '../../stores/site';
 
 const { t } = useI18n();
+const site = useSiteStore();
 </script>
 
 <template>
   <aside class="brand">
     <div class="brand-logo">
-      <svg viewBox="0 0 46 46" width="46" height="46" aria-hidden="true">
-        <rect x="2" y="2" width="42" height="42" rx="13" fill="var(--el-color-primary, #5d87ff)" />
-        <path
-          d="M14 32V14l18 18V14"
-          fill="none"
-          stroke="#fff"
-          stroke-width="4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-      <span class="brand-logo-text">{{ AUTH_BRAND_NAME }}</span>
+      <!-- ArtLogo → NomiLogo：三张授权页与后台顶栏共用同一枚品牌标记。 -->
+      <NomiLogo :size="46" />
+      <span class="brand-logo-text">{{ site.name }}</span>
     </div>
 
     <div class="brand-art">

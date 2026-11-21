@@ -43,9 +43,11 @@ describe('主题色工具', () => {
 });
 
 describe('演示账号', () => {
-  it('提供 super / admin / user 三个角色', () => {
-    expect(DEMO_ACCOUNTS.map((account) => account.key)).toEqual(['super', 'admin', 'user']);
-    expect(DEMO_ACCOUNTS.every((account) => account.userName === account.key)).toBe(true);
+  it('三个演示账号分别挂在三个不同的部门下（登录页选择器按部门填账号）', () => {
+    expect(DEMO_ACCOUNTS.map((account) => account.userName)).toEqual(['super', 'admin', 'user']);
+    const departments = DEMO_ACCOUNTS.map((account) => account.departmentId);
+    expect(new Set(departments).size).toBe(DEMO_ACCOUNTS.length);
+    expect(departments.every((id) => id > 0)).toBe(true);
   });
 
   it('演示密码与服务端白名单一致', () => {

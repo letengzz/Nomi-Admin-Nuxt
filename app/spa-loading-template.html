@@ -1,0 +1,265 @@
+<!--
+  SPA 启动占位页。
+
+  /admin/** 是 ssr:false（见 nuxt.config.ts 的 routeRules），服务端只会吐出一个空壳
+  HTML：脚本下载、水合、路由守卫里还要等一次权限接口 —— 这段时间浏览器里就是一张
+  纯白页，最像「卡死了」。Nuxt 会把这个文件塞进 body 末尾的 #__nuxt-loader，
+  在真正的水合完成前一直显示，所以这里必须写成**纯静态 HTML + 内联 CSS**：
+  不能用 Vue，也不能引用任何外部资源或 var(--bg) 这类运行时变量。
+
+  视觉上刻意照着系统自己的语言来，而不是另造一套「加载页」：
+    · 不套卡片外壳，直接把应用内那枚 NomiSpinner 的静态复刻（同一 viewBox、同样的
+      dasharray 与缓动时长）居中放在主色柔光上；
+    · 颜色只读 var(--el-color-primary) / light-3 —— <head> 的主题引导脚本在解析 body
+      之前就把主色写成了 <html> 的内联变量，所以第一帧就是用户自己选的主题色；
+    · 背景一层主色柔光 + 一条不确定进度条，避免「白纸上看不出在动」。
+-->
+
+<div class="nomi-boot" role="status" aria-label="loading">
+  <svg
+    class="nomi-boot__spinner"
+    width="72"
+    height="72"
+    viewBox="0 0 64 64"
+    fill="none"
+    aria-hidden="true"
+  >
+    <defs>
+      <linearGradient
+        id="nomi-boot-arc"
+        x1="8"
+        y1="8"
+        x2="56"
+        y2="56"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0%" stop-color="var(--el-color-primary, #5d87ff)" stop-opacity="0.08" />
+        <stop offset="45%" stop-color="var(--el-color-primary, #5d87ff)" />
+        <stop offset="100%" stop-color="var(--el-color-primary-light-3, #93aeff)" />
+      </linearGradient>
+    </defs>
+    <!-- 静态轨道：给旋转弧一个可感知的完整圆 -->
+    <circle
+      cx="32"
+      cy="32"
+      r="26"
+      stroke="var(--el-color-primary, #5d87ff)"
+      stroke-opacity="0.12"
+      stroke-width="3"
+    />
+    <circle
+      class="nomi-boot__outer"
+      cx="32"
+      cy="32"
+      r="26"
+      stroke="url(#nomi-boot-arc)"
+      stroke-width="4"
+      stroke-linecap="round"
+      stroke-dasharray="104 60"
+    />
+    <circle
+      class="nomi-boot__inner"
+      cx="32"
+      cy="32"
+      r="16"
+      stroke="var(--el-color-primary, #5d87ff)"
+      stroke-opacity="0.45"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-dasharray="34 68"
+    />
+    <circle
+      class="nomi-boot__core"
+      cx="32"
+      cy="32"
+      r="3.5"
+      fill="var(--el-color-primary, #5d87ff)"
+    />
+  </svg>
+
+  <p class="nomi-boot__brand">Nomi Admin</p>
+  <span class="nomi-boot__bar" aria-hidden="true"><i></i></span>
+</div>
+
+<style>
+  /*
+   * 只给 .nomi-boot 自己上底色，不动 html / body：
+   * 这段 <style> 和占位层一起被删掉，不该在应用起来之后还留着全局效果。
+   * .nomi-boot 是 fixed + inset:0，首帧就已经铺满视口，不需要 body 兜底。
+   */
+  .nomi-boot {
+    position: fixed;
+    z-index: 20;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: #f8fafc;
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    animation: nomi-boot-in 0.3s ease-out both;
+  }
+
+  /* 主色光晕：贴在内容背后的一圈，比铺满整屏的 wash 更像「有光源」，也随主题色走 */
+  .nomi-boot::before {
+    position: absolute;
+    z-index: -1;
+    top: 50%;
+    left: 50%;
+    width: min(76vw, 420px);
+    height: min(76vw, 420px);
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--el-color-primary, #5d87ff) 16%, transparent) 0%,
+      color-mix(in srgb, var(--el-color-primary, #5d87ff) 6%, transparent) 42%,
+      transparent 68%
+    );
+    border-radius: 50%;
+    content: '';
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+
+  .nomi-boot__spinner {
+    overflow: visible;
+    filter: drop-shadow(
+      0 3px 12px color-mix(in srgb, var(--el-color-primary, #5d87ff) 22%, transparent)
+    );
+  }
+
+  .nomi-boot__outer,
+  .nomi-boot__inner,
+  .nomi-boot__core {
+    transform-origin: 32px 32px;
+  }
+
+  .nomi-boot__outer {
+    animation: nomi-boot-spin 1.05s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+  }
+
+  .nomi-boot__inner {
+    animation: nomi-boot-spin-reverse 1.5s linear infinite;
+  }
+
+  .nomi-boot__core {
+    animation: nomi-boot-pulse 1.4s ease-in-out infinite;
+  }
+
+  .nomi-boot__brand {
+    margin: 0;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  /* 不确定进度条：只声明「还在动」，不假装知道百分比 */
+  .nomi-boot__bar {
+    position: relative;
+    overflow: hidden;
+    width: 148px;
+    height: 4px;
+    background: color-mix(in srgb, var(--el-color-primary, #5d87ff) 16%, transparent);
+    border-radius: 999px;
+  }
+
+  .nomi-boot__bar > i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 50%;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--el-color-primary, #5d87ff) 20%, transparent),
+      var(--el-color-primary, #5d87ff) 58%,
+      var(--el-color-primary-light-3, #93aeff)
+    );
+    border-radius: inherit;
+    animation: nomi-boot-bar 1.25s cubic-bezier(0.55, 0.1, 0.45, 0.9) infinite;
+  }
+
+  /* 暗色：与应用 app.vue 的 html.dark 取值一致 */
+  html.dark .nomi-boot {
+    background: #0b1120;
+  }
+
+  html.dark .nomi-boot::before {
+    background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--el-color-primary, #5d87ff) 30%, transparent) 0%,
+      color-mix(in srgb, var(--el-color-primary, #5d87ff) 10%, transparent) 45%,
+      transparent 70%
+    );
+  }
+
+  html.dark .nomi-boot__brand {
+    color: #e2e8f0;
+  }
+
+  html.dark .nomi-boot__bar {
+    background: color-mix(in srgb, var(--el-color-primary, #5d87ff) 26%, transparent);
+  }
+
+  @keyframes nomi-boot-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes nomi-boot-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes nomi-boot-spin-reverse {
+    to {
+      transform: rotate(-360deg);
+    }
+  }
+
+  @keyframes nomi-boot-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.75);
+    }
+
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
+  @keyframes nomi-boot-bar {
+    from {
+      transform: translateX(-70%);
+    }
+
+    to {
+      transform: translateX(260%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nomi-boot {
+      animation: none;
+    }
+
+    .nomi-boot__outer,
+    .nomi-boot__inner {
+      animation-duration: 3s;
+    }
+
+    .nomi-boot__bar > i {
+      animation-duration: 2.4s;
+    }
+  }
+</style>

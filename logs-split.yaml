@@ -1,0 +1,377 @@
+- generic [active] [ref=f1e11]:
+  - generic [ref=f1e12]:
+    - status [ref=f1e13]: 系统日志 | Nomi Admin
+    - generic [ref=f1e14]:
+      - complementary [ref=f1e15]:
+        - generic [ref=f1e17]:
+          - generic [ref=f1e18] [cursor=pointer]: Nomi Admin
+          - menubar [ref=f1e27]:
+            - menuitem "仪表盘" [ref=f1e28] [cursor=pointer]
+            - menuitem "数据分析" [ref=f1e35] [cursor=pointer]
+            - menuitem "业务管理" [ref=f1e38]
+            - menuitem "系统管理" [ref=f1e49]
+            - menuitem "系统监控" [expanded] [ref=f1e58]:
+              - menu [ref=f1e66]:
+                - menuitem "在线用户" [ref=f1e67] [cursor=pointer]
+                - menuitem "系统日志" [ref=f1e71] [cursor=pointer]
+      - main [ref=f1e76]:
+        - generic [ref=f1e78]:
+          - generic [ref=f1e79]:
+            - generic [ref=f1e80]:
+              - button "展开 / 收起侧栏" [ref=f1e81] [cursor=pointer]
+              - button "刷新当前页" [ref=f1e83] [cursor=pointer]
+              - button "快速入口" [ref=f1e88] [cursor=pointer]
+              - navigation "面包屑导航" [ref=f1e95]:
+                - link [ref=f1e96] [cursor=pointer]:
+                  - /url: /admin
+                - generic [ref=f1e103]: 系统监控
+                - generic [ref=f1e106]: 系统日志
+            - generic [ref=f1e107]:
+              - button "搜索菜单 ⌘ K" [ref=f1e108] [cursor=pointer]:
+                - generic [ref=f1e112]: 搜索菜单
+                - generic [ref=f1e113]: ⌘ K
+              - button "全屏" [ref=f1e114] [cursor=pointer]
+              - button [ref=f1e121]:
+                - button "切换语言" [ref=f1e122] [cursor=pointer]
+              - button "通知" [ref=f1e130] [cursor=pointer]
+              - button "系统设置" [ref=f1e136] [cursor=pointer]
+              - button "切换明暗主题" [ref=f1e140] [cursor=pointer]
+              - button "N super" [ref=f1e144] [cursor=pointer]:
+                - generic [ref=f1e145]: "N"
+                - generic [ref=f1e146]: super
+          - generic [ref=f1e149]:
+            - generic [ref=f1e151]:
+              - generic [ref=f1e152] [cursor=pointer]: 仪表盘
+              - generic [ref=f1e159] [cursor=pointer]:
+                - generic [ref=f1e163]: 系统日志
+                - button "关闭" [ref=f1e164]
+            - button "更多操作" [ref=f1e168] [cursor=pointer]
+        - generic [ref=f1e175]:
+          - generic [ref=f1e176]:
+            - tablist [ref=f1e180]:
+              - tab "登录日志" [selected] [ref=f1e182]
+              - tab "操作日志" [ref=f1e183]
+            - generic:
+              - tabpanel "登录日志"
+          - generic [ref=f1e184]:
+            - textbox "搜索昵称 / 账号 / IP" [ref=f1e187]
+            - generic [ref=f1e190] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f1e192]
+                - generic [ref=f1e193]: 全部行为
+            - generic [ref=f1e199] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f1e201]
+                - generic [ref=f1e202]: 全部状态
+            - button "搜索" [ref=f1e207] [cursor=pointer]
+            - button "重置" [ref=f1e209] [cursor=pointer]
+          - generic [ref=f1e213]:
+            - table [ref=f1e215]:
+              - rowgroup [ref=f1e226]:
+                - row [ref=f1e227]:
+                  - columnheader "序号" [ref=f1e228]
+                  - columnheader "登录时间" [ref=f1e230]
+                  - columnheader "用户昵称" [ref=f1e232]
+                  - columnheader "登录行为" [ref=f1e234]
+                  - columnheader "状态" [ref=f1e236]
+                  - columnheader "登录 IP" [ref=f1e238]
+                  - columnheader "登录地点" [ref=f1e240]
+                  - columnheader "浏览器" [ref=f1e242]
+                  - columnheader "终端系统" [ref=f1e244]
+            - table [ref=f1e250]:
+              - rowgroup [ref=f1e261]:
+                - row [ref=f1e262]:
+                  - cell "1" [ref=f1e263]
+                  - cell "2026-11-18 13:40:43" [ref=f1e265]
+                  - cell "只读访客 @user" [ref=f1e267]:
+                    - generic [ref=f1e268]:
+                      - text: 只读访客
+                      - generic [ref=f1e269]: "@user"
+                  - cell "登录" [ref=f1e270]
+                  - cell "成功" [ref=f1e272]
+                  - cell "127.0.0.1" [ref=f1e275]
+                  - cell "本地回环" [ref=f1e277]
+                  - cell "curl 8" [ref=f1e279]
+                  - cell "未知" [ref=f1e281]
+                - row [ref=f1e283]:
+                  - cell "2" [ref=f1e284]
+                  - cell "2026-11-18 13:40:42" [ref=f1e286]
+                  - cell "只读访客 @user" [ref=f1e288]:
+                    - generic [ref=f1e289]:
+                      - text: 只读访客
+                      - generic [ref=f1e290]: "@user"
+                  - cell "强制下线" [ref=f1e291]
+                  - cell "成功 管理员强制下线" [ref=f1e293]:
+                    - generic [ref=f1e294]:
+                      - generic [ref=f1e295]: 成功
+                      - generic "管理员强制下线" [ref=f1e296]
+                  - cell "127.0.0.1" [ref=f1e297]
+                  - cell "本地回环" [ref=f1e299]
+                  - cell "curl 8" [ref=f1e301]
+                  - cell "未知" [ref=f1e303]
+                - row [ref=f1e305]:
+                  - cell "3" [ref=f1e306]
+                  - cell "2026-11-18 13:40:41" [ref=f1e308]
+                  - cell "只读访客 @user" [ref=f1e310]:
+                    - generic [ref=f1e311]:
+                      - text: 只读访客
+                      - generic [ref=f1e312]: "@user"
+                  - cell "登录" [ref=f1e313]
+                  - cell "成功" [ref=f1e315]
+                  - cell "127.0.0.1" [ref=f1e318]
+                  - cell "本地回环" [ref=f1e320]
+                  - cell "curl 8" [ref=f1e322]
+                  - cell "未知" [ref=f1e324]
+                - row [ref=f1e326]:
+                  - cell "4" [ref=f1e327]
+                  - cell "2026-11-18 13:40:40" [ref=f1e329]
+                  - cell "超级管理员 @super" [ref=f1e331]:
+                    - generic [ref=f1e332]:
+                      - text: 超级管理员
+                      - generic [ref=f1e333]: "@super"
+                  - cell "登录" [ref=f1e334]
+                  - cell "成功" [ref=f1e336]
+                  - cell "127.0.0.1" [ref=f1e339]
+                  - cell "本地回环" [ref=f1e341]
+                  - cell "curl 8" [ref=f1e343]
+                  - cell "未知" [ref=f1e345]
+                - row [ref=f1e347]:
+                  - cell "5" [ref=f1e348]
+                  - cell "2026-11-18 13:40:31" [ref=f1e350]
+                  - cell "只读访客 @user" [ref=f1e352]:
+                    - generic [ref=f1e353]:
+                      - text: 只读访客
+                      - generic [ref=f1e354]: "@user"
+                  - cell "登录" [ref=f1e355]
+                  - cell "成功" [ref=f1e357]
+                  - cell "127.0.0.1" [ref=f1e360]
+                  - cell "本地回环" [ref=f1e362]
+                  - cell "curl 8" [ref=f1e364]
+                  - cell "未知" [ref=f1e366]
+                - row [ref=f1e368]:
+                  - cell "6" [ref=f1e369]
+                  - cell "2026-11-18 13:38:49" [ref=f1e371]
+                  - cell "超级管理员 @super" [ref=f1e373]:
+                    - generic [ref=f1e374]:
+                      - text: 超级管理员
+                      - generic [ref=f1e375]: "@super"
+                  - cell "登录" [ref=f1e376]
+                  - cell "成功" [ref=f1e378]
+                  - cell "127.0.0.1" [ref=f1e381]
+                  - cell "本地回环" [ref=f1e383]
+                  - cell "Chrome 138" [ref=f1e385]
+                  - cell "Windows 10/11" [ref=f1e387]
+                - row [ref=f1e389]:
+                  - cell "7" [ref=f1e390]
+                  - cell "2026-11-18 13:37:43" [ref=f1e392]
+                  - cell "管理员 @admin" [ref=f1e394]:
+                    - generic [ref=f1e395]:
+                      - text: 管理员
+                      - generic [ref=f1e396]: "@admin"
+                  - cell "强制下线" [ref=f1e397]
+                  - cell "成功 管理员强制下线" [ref=f1e399]:
+                    - generic [ref=f1e400]:
+                      - generic [ref=f1e401]: 成功
+                      - generic "管理员强制下线" [ref=f1e402]
+                  - cell "127.0.0.1" [ref=f1e403]
+                  - cell "本地回环" [ref=f1e405]
+                  - cell "Chrome 138" [ref=f1e407]
+                  - cell "Windows 10/11" [ref=f1e409]
+                - row [ref=f1e411]:
+                  - cell "8" [ref=f1e412]
+                  - cell "2026-11-18 13:37:03" [ref=f1e414]
+                  - cell "管理员 @admin" [ref=f1e416]:
+                    - generic [ref=f1e417]:
+                      - text: 管理员
+                      - generic [ref=f1e418]: "@admin"
+                  - cell "登录" [ref=f1e419]
+                  - cell "成功" [ref=f1e421]
+                  - cell "127.0.0.1" [ref=f1e424]
+                  - cell "本地回环" [ref=f1e426]
+                  - cell "Chrome 138" [ref=f1e428]
+                  - cell "Windows 10/11" [ref=f1e430]
+                - row [ref=f1e432]:
+                  - cell "9" [ref=f1e433]
+                  - cell "2026-11-18 13:36:08" [ref=f1e435]
+                  - cell "超级管理员 @super" [ref=f1e437]:
+                    - generic [ref=f1e438]:
+                      - text: 超级管理员
+                      - generic [ref=f1e439]: "@super"
+                  - cell "登录" [ref=f1e440]
+                  - cell "成功" [ref=f1e442]
+                  - cell "127.0.0.1" [ref=f1e445]
+                  - cell "本地回环" [ref=f1e447]
+                  - cell "Chrome 138" [ref=f1e449]
+                  - cell "Windows 10/11" [ref=f1e451]
+                - row [ref=f1e453]:
+                  - cell "10" [ref=f1e454]
+                  - cell "2026-11-18 13:34:10" [ref=f1e456]
+                  - cell "管理员 @admin" [ref=f1e458]:
+                    - generic [ref=f1e459]:
+                      - text: 管理员
+                      - generic [ref=f1e460]: "@admin"
+                  - cell "登录" [ref=f1e461]
+                  - cell "成功" [ref=f1e463]
+                  - cell "127.0.0.1" [ref=f1e466]
+                  - cell "本地回环" [ref=f1e468]
+                  - cell "Chrome 138" [ref=f1e470]
+                  - cell "Windows 10/11" [ref=f1e472]
+                - row [ref=f1e474]:
+                  - cell "11" [ref=f1e475]
+                  - cell "2026-11-18 13:33:18" [ref=f1e477]
+                  - cell "超级管理员 @super" [ref=f1e479]:
+                    - generic [ref=f1e480]:
+                      - text: 超级管理员
+                      - generic [ref=f1e481]: "@super"
+                  - cell "登录" [ref=f1e482]
+                  - cell "成功" [ref=f1e484]
+                  - cell "127.0.0.1" [ref=f1e487]
+                  - cell "本地回环" [ref=f1e489]
+                  - cell "Chrome 138" [ref=f1e491]
+                  - cell "Windows 10/11" [ref=f1e493]
+                - row [ref=f1e495]:
+                  - cell "12" [ref=f1e496]
+                  - cell "2026-11-18 13:32:02" [ref=f1e498]
+                  - cell "超级管理员 @super" [ref=f1e500]:
+                    - generic [ref=f1e501]:
+                      - text: 超级管理员
+                      - generic [ref=f1e502]: "@super"
+                  - cell "登录" [ref=f1e503]
+                  - cell "成功" [ref=f1e505]
+                  - cell "127.0.0.1" [ref=f1e508]
+                  - cell "本地回环" [ref=f1e510]
+                  - cell "Chrome 138" [ref=f1e512]
+                  - cell "Windows 10/11" [ref=f1e514]
+                - row [ref=f1e516]:
+                  - cell "13" [ref=f1e517]
+                  - cell "2026-11-18 13:28:34" [ref=f1e519]
+                  - cell "管理员 @admin" [ref=f1e521]:
+                    - generic [ref=f1e522]:
+                      - text: 管理员
+                      - generic [ref=f1e523]: "@admin"
+                  - cell "强制下线" [ref=f1e524]
+                  - cell "成功 管理员强制下线" [ref=f1e526]:
+                    - generic [ref=f1e527]:
+                      - generic [ref=f1e528]: 成功
+                      - generic "管理员强制下线" [ref=f1e529]
+                  - cell "192.168.17.1" [ref=f1e530]
+                  - cell "局域网" [ref=f1e532]
+                  - cell "Chrome 157" [ref=f1e534]
+                  - cell "Windows 10/11" [ref=f1e536]
+                - row [ref=f1e538]:
+                  - cell "14" [ref=f1e539]
+                  - cell "2026-11-18 13:28:32" [ref=f1e541]
+                  - cell "超级管理员 @super" [ref=f1e543]:
+                    - generic [ref=f1e544]:
+                      - text: 超级管理员
+                      - generic [ref=f1e545]: "@super"
+                  - cell "强制下线" [ref=f1e546]
+                  - cell "成功 管理员强制下线" [ref=f1e548]:
+                    - generic [ref=f1e549]:
+                      - generic [ref=f1e550]: 成功
+                      - generic "管理员强制下线" [ref=f1e551]
+                  - cell "192.168.17.1" [ref=f1e552]
+                  - cell "局域网" [ref=f1e554]
+                  - cell "Chrome 157" [ref=f1e556]
+                  - cell "Windows 10/11" [ref=f1e558]
+                - row [ref=f1e560]:
+                  - cell "15" [ref=f1e561]
+                  - cell "2026-11-18 13:28:30" [ref=f1e563]
+                  - cell "超级管理员 @super" [ref=f1e565]:
+                    - generic [ref=f1e566]:
+                      - text: 超级管理员
+                      - generic [ref=f1e567]: "@super"
+                  - cell "强制下线" [ref=f1e568]
+                  - cell "成功 管理员强制下线" [ref=f1e570]:
+                    - generic [ref=f1e571]:
+                      - generic [ref=f1e572]: 成功
+                      - generic "管理员强制下线" [ref=f1e573]
+                  - cell "192.168.17.1" [ref=f1e574]
+                  - cell "局域网" [ref=f1e576]
+                  - cell "Chrome 157" [ref=f1e578]
+                  - cell "Windows 10/11" [ref=f1e580]
+                - row [ref=f1e582]:
+                  - cell "16" [ref=f1e583]
+                  - cell "2026-11-18 09:25:57" [ref=f1e585]
+                  - cell "超级管理员 @super" [ref=f1e587]:
+                    - generic [ref=f1e588]:
+                      - text: 超级管理员
+                      - generic [ref=f1e589]: "@super"
+                  - cell "登录" [ref=f1e590]
+                  - cell "成功" [ref=f1e592]
+                  - cell "127.0.0.1" [ref=f1e595]
+                  - cell "本地回环" [ref=f1e597]
+                  - cell "Chrome 138" [ref=f1e599]
+                  - cell "Windows 10/11" [ref=f1e601]
+                - row [ref=f1e603]:
+                  - cell "17" [ref=f1e604]
+                  - cell "2026-11-18 09:24:54" [ref=f1e606]
+                  - cell "超级管理员 @super" [ref=f1e608]:
+                    - generic [ref=f1e609]:
+                      - text: 超级管理员
+                      - generic [ref=f1e610]: "@super"
+                  - cell "登录" [ref=f1e611]
+                  - cell "成功" [ref=f1e613]
+                  - cell "127.0.0.1" [ref=f1e616]
+                  - cell "本地回环" [ref=f1e618]
+                  - cell "Chrome 138" [ref=f1e620]
+                  - cell "Windows 10/11" [ref=f1e622]
+                - row [ref=f1e624]:
+                  - cell "18" [ref=f1e625]
+                  - cell "2026-11-18 09:24:04" [ref=f1e627]
+                  - cell "超级管理员 @super" [ref=f1e629]:
+                    - generic [ref=f1e630]:
+                      - text: 超级管理员
+                      - generic [ref=f1e631]: "@super"
+                  - cell "登录" [ref=f1e632]
+                  - cell "成功" [ref=f1e634]
+                  - cell "127.0.0.1" [ref=f1e637]
+                  - cell "本地回环" [ref=f1e639]
+                  - cell "Chrome 138" [ref=f1e641]
+                  - cell "Windows 10/11" [ref=f1e643]
+                - row [ref=f1e645]:
+                  - cell "19" [ref=f1e646]
+                  - cell "2026-11-18 09:23:44" [ref=f1e648]
+                  - cell "supersuper" [ref=f1e650]
+                  - cell "登录失败" [ref=f1e652]
+                  - cell "失败 账号或密码错误" [ref=f1e654]:
+                    - generic [ref=f1e655]:
+                      - generic [ref=f1e656]: 失败
+                      - generic "账号或密码错误" [ref=f1e657]
+                  - cell "127.0.0.1" [ref=f1e658]
+                  - cell "本地回环" [ref=f1e660]
+                  - cell "Chrome 138" [ref=f1e662]
+                  - cell "Windows 10/11" [ref=f1e664]
+                - row [ref=f1e666]:
+                  - cell "20" [ref=f1e667]
+                  - cell "2026-11-18 09:23:25" [ref=f1e669]
+                  - cell "supersuper" [ref=f1e671]
+                  - cell "登录失败" [ref=f1e673]
+                  - cell "失败 账号或密码错误" [ref=f1e675]:
+                    - generic [ref=f1e676]:
+                      - generic [ref=f1e677]: 失败
+                      - generic "账号或密码错误" [ref=f1e678]
+                  - cell "127.0.0.1" [ref=f1e679]
+                  - cell "本地回环" [ref=f1e681]
+                  - cell "Chrome 138" [ref=f1e683]
+                  - cell "Windows 10/11" [ref=f1e685]
+          - generic [ref=f1e691]:
+            - generic [ref=f1e692]: 共 49 条
+            - generic [ref=f1e695] [cursor=pointer]:
+              - generic:
+                - combobox [ref=f1e697]
+                - generic [ref=f1e698]: 20条/页
+            - button "上一页" [disabled] [ref=f1e703]
+            - list [ref=f1e704]:
+              - listitem "第 1 页" [ref=f1e705]: "1"
+              - listitem "第 2 页" [ref=f1e706] [cursor=pointer]: "2"
+              - listitem "第 3 页" [ref=f1e707] [cursor=pointer]: "3"
+            - button "下一页" [ref=f1e708] [cursor=pointer]
+  - generic [ref=f1e709]:
+    - button "Toggle Nuxt DevTools" [ref=f1e710] [cursor=pointer]
+    - generic "Page load time" [ref=f1e714]:
+      - generic [ref=f1e715]: "277"
+      - generic [ref=f1e716]: ms
+    - button "Toggle Component Inspector" [ref=f1e718] [cursor=pointer]
+  - tooltip [ref=f1e723]:
+    - paragraph [ref=f1e724]: 点这里可以自定义主题、菜单布局与顶栏功能，设置会自动保存。

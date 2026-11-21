@@ -4,6 +4,8 @@
  *
  * 对齐 docs/登录页设计参考文档.md 的布局、状态机与视觉规范，但用当前工程的技术栈实现：
  * Nuxt 4 文件路由 + Element Plus + Pinia + @vueuse/core + Nuxt i18n + Nitro mock 接口。
+ *
+ * 外壳样式在 app/assets/styles/auth.scss，与注册页共用一份（不再反向 import 登录页样式）。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import {
@@ -19,55 +21,93 @@ import {
   type FormInstance,
   type FormRules,
 } from 'element-plus';
-import LoginBrandPanel from '../components/auth/LoginBrandPanel.vue';
-import AuthTopBar from '../components/auth/AuthTopBar.vue';
-import DragVerify from '../components/auth/DragVerify.vue';
+import NomiAuthBrandPanel from '../components/auth/NomiAuthBrandPanel.vue';
+import NomiAuthTopBar from '../components/auth/NomiAuthTopBar.vue';
+import NomiSiteFooter from '../components/layout/NomiSiteFooter.vue';
+import NomiDragVerify from '../components/auth/NomiDragVerify.vue';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+import { HOME_PATH } from '../constants/layout';
 import {
-  DEMO_ACCOUNTS,
-  DEMO_PASSWORD,
-  REMEMBERED_ACCOUNT_KEY,
-  type DemoAccountKey,
-} from '../constants/auth';
-import { fetchLogin, getErrorMessage } from '../services/auth';
+  fetchLogin,
+  fetchLoginDepartments,
+  getErrorMessage,
+  type LoginDepartment,
+} from '../services/auth';
+import { usePermissionStore } from '../stores/permission';
 import { useUserStore } from '../stores/user';
+import { fetchLoginConfig } from '../services/system-config';
 
 const { t, locale } = useI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 const userStore = useUserStore();
 
 useHead({ title: computed(() => t('login.pageTitle')) });
 
 const formRef = ref<FormInstance>();
-const dragRef = ref<InstanceType<typeof DragVerify> | null>(null);
+const dragRef = ref<InstanceType<typeof NomiDragVerify> | null>(null);
 const formKey = ref(0);
 const isPassing = ref(false);
 const isClickPass = ref(false);
 const loading = ref(false);
+/** 由系统配置里的「登录配置」下发；接口不可用时保持 true，不放宽校验。 */
+const captchaEnabled = ref(true);
+/** 关闭注册时连入口一起收起，别让用户点进去才看到「暂未开放」。 */
+const registrationEnabled = ref(true);
 
 const formData = reactive({
-  account: 'super' as DemoAccountKey,
+  /** 选中的部门 id（0 = 还没选） */
+  departmentId: 0,
   userName: '',
   password: '',
   rememberPassword: true,
 });
 
-const accounts = computed(() =>
-  DEMO_ACCOUNTS.map((account) => ({
-    key: account.key,
-    label: t(`login.roles.${account.key}`),
-  })),
-);
+/** 登录页的部门表来自免登录接口，拿不到就退化成「手动输入账号」。 */
+const departments = ref<LoginDepartment[]>([]);
+
+/**
+ * 部门树展开成带缩进的下拉：深度优先、同级按接口给的顺序（weigh 降序），
+ * 每层缩进一个全角空格。不直接用 el-tree-select 是因为这里只是「选一个部门」，
+ * 下拉比树更轻。
+ */
+const departmentOptions = computed(() => {
+  const children = new Map<number, LoginDepartment[]>();
+  for (const dept of departments.value) {
+    const siblings = children.get(dept.pid) ?? [];
+    siblings.push(dept);
+    children.set(dept.pid, siblings);
+  }
+
+  const rows: Array<{ id: number; label: string }> = [];
+  const walk = (pid: number, depth: number): void => {
+    // 层级上限是防御用的：数据被人手工改成环时不至于把登录页挂死。
+    if (depth > 8) return;
+    for (const dept of children.get(pid) ?? []) {
+      rows.push({ id: dept.id, label: `${'\u3000'.repeat(depth)}${dept.name}` });
+      walk(dept.id, depth + 1);
+    }
+  };
+  walk(0, 0);
+  return rows;
+});
 
 const rules = computed<FormRules>(() => ({
   userName: [{ required: true, message: t('login.placeholder.username'), trigger: 'blur' }],
   password: [{ required: true, message: t('login.placeholder.password'), trigger: 'blur' }],
 }));
 
-function setupAccount(key: DemoAccountKey): void {
-  const account = DEMO_ACCOUNTS.find((item) => item.key === key);
-  if (!account) return;
-  formData.account = account.key;
-  formData.userName = account.userName;
+/**
+ * 选部门 = 演示脚本。
+ *
+ * 该部门下有演示账号就自动填入账号密码（三个演示账号分别挂在三个部门下）；
+ * 没有就保持用户已经输入的内容 —— 清空反而会让人以为选错了。
+ */
+function applyDepartment(id: number): void {
+  formData.departmentId = id;
+  const demo = DEMO_ACCOUNTS.find((item) => item.departmentId === id);
+  if (!demo) return;
+  formData.userName = demo.userName;
   formData.password = DEMO_PASSWORD;
 }
 
@@ -77,8 +117,14 @@ function resetDragVerify(): void {
   isClickPass.value = false;
 }
 
-function showHint(): void {
-  ElMessage.info(t('login.notAvailable'));
+/** 文档 15.2：登录 → 忘记密码是真实导航，用 localePath 保持当前语言前缀。 */
+function toForgetPassword(): void {
+  void navigateTo(localePath('/forget-password'));
+}
+
+/** 文档 15.2：登录 → 注册是真实导航，用 localePath 保持当前语言前缀。 */
+function toRegister(): void {
+  void navigateTo(localePath('/register'));
 }
 
 async function handleSubmit(): Promise<void> {
@@ -86,7 +132,7 @@ async function handleSubmit(): Promise<void> {
 
   const valid = await formRef.value.validate().catch(() => false);
   if (!valid) return;
-  if (!isPassing.value) {
+  if (captchaEnabled.value && !isPassing.value) {
     isClickPass.value = true;
     return;
   }
@@ -97,8 +143,18 @@ async function handleSubmit(): Promise<void> {
     const result = await fetchLogin({
       userName: formData.userName.trim(),
       password: formData.password,
+      departmentId: formData.departmentId,
     });
-    userStore.setToken(result.token, result.refreshToken);
+    // 凭证与身份一次写完：store 内部会顺手判断「是不是换了个人」，
+    // 是的话清掉上一位用户留下的标签页（docs/状态管理.md 3.4）。
+    userStore.login({
+      token: result.token,
+      refreshToken: result.refreshToken,
+      info: { userId: result.userName, userName: result.userName, roles: [result.role] },
+    });
+    // 换人了：清掉上一位用户的权限缓存。进后台时由全局路由守卫重新拉一次，
+    // 避免「登录了 A，侧边栏还是 B 的菜单」这种要刷新才好使的怪现象。
+    usePermissionStore().reset();
 
     // 记住的只有账号名，绝不保存明文密码。
     if (formData.rememberPassword) {
@@ -115,14 +171,14 @@ async function handleSubmit(): Promise<void> {
 
     // 只允许站内相对路径，防止 //evil.com 这类开放重定向。
     const raw = route.query.redirect;
-    const redirect =
-      typeof raw === 'string' &&
-      raw.startsWith('/') &&
-      !raw.startsWith('//') &&
-      !raw.startsWith('/\\')
+    const safe =
+      typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/\\')
         ? raw
-        : '/';
-    await navigateTo(redirect);
+        : '';
+
+    // 没有 redirect（或它指向根路径）时落主界面：根路径已经没有介绍页了，
+    // 再走一次 '/' 只会多一跳。localePath 保证英文环境落到 /en/admin。
+    await navigateTo(safe && safe !== '/' ? safe : localePath(HOME_PATH));
   } catch (error) {
     ElMessage.error(getErrorMessage(error));
   } finally {
@@ -137,19 +193,37 @@ watch(locale, () => {
   formKey.value += 1;
 });
 
-onMounted(() => {
-  setupAccount('super');
+onMounted(async () => {
+  // 验证码开关与部门表都是登录页必需的展示条件，并行拿，谁慢都不拦另一个。
+  const [loginConfig, deptList] = await Promise.all([fetchLoginConfig(), fetchLoginDepartments()]);
+  captchaEnabled.value = loginConfig.captchaEnabled;
+  registrationEnabled.value = loginConfig.registrationEnabled;
+  departments.value = deptList;
+  // 默认选第一个「有演示账号」的部门：打开页面就能直接点登录。
+  const preferred = DEMO_ACCOUNTS.map((item) => item.departmentId).find((id) =>
+    departments.value.some((dept) => dept.id === id),
+  );
+  if (preferred) applyDepartment(preferred);
+
   const remembered = localStorage.getItem(REMEMBERED_ACCOUNT_KEY);
   if (remembered) formData.userName = remembered;
+
+  // 文档 18.8：注册成功后带 username 回来，直接预填，省掉用户重新敲一遍。
+  const registered = route.query.username;
+  if (typeof registered === 'string' && registered.length > 0 && registered.length <= 20) {
+    formData.userName = registered;
+    // 新账号用的是注册时自己设的密码，别把演示密码留在框里误导用户。
+    formData.password = '';
+  }
 });
 </script>
 
 <template>
   <div class="auth-page">
-    <LoginBrandPanel />
+    <NomiAuthBrandPanel />
 
     <div class="auth-panel">
-      <AuthTopBar />
+      <NomiAuthTopBar />
 
       <div class="auth-wrap">
         <div class="auth-form">
@@ -163,13 +237,18 @@ onMounted(() => {
             :rules="rules"
             @keyup.enter="handleSubmit"
           >
-            <ElFormItem prop="account">
-              <ElSelect v-model="formData.account" class="auth-control" @change="setupAccount">
+            <ElFormItem prop="departmentId">
+              <ElSelect
+                v-model="formData.departmentId"
+                class="auth-control"
+                :placeholder="t('login.departmentLabel')"
+                @change="applyDepartment"
+              >
                 <ElOption
-                  v-for="account in accounts"
-                  :key="account.key"
-                  :label="account.label"
-                  :value="account.key"
+                  v-for="dept in departmentOptions"
+                  :key="dept.id"
+                  :label="dept.label"
+                  :value="dept.id"
                 />
               </ElSelect>
             </ElFormItem>
@@ -194,26 +273,28 @@ onMounted(() => {
               />
             </ElFormItem>
 
-            <!-- 错误提示藏在滑块背后，出错才滑出，布局零抖动 -->
-            <div class="auth-verify-wrap">
-              <div class="auth-verify-cover" :class="{ 'is-error': !isPassing && isClickPass }">
-                <DragVerify
-                  ref="dragRef"
-                  v-model:value="isPassing"
-                  :text="t('login.sliderText')"
-                  :success-text="t('login.sliderSuccessText')"
-                />
+            <template v-if="captchaEnabled">
+              <!-- 错误提示藏在滑块背后，出错才滑出，布局零抖动 -->
+              <div class="auth-verify-wrap">
+                <div class="auth-verify-cover" :class="{ 'is-error': !isPassing && isClickPass }">
+                  <NomiDragVerify
+                    ref="dragRef"
+                    v-model:value="isPassing"
+                    :text="t('login.sliderText')"
+                    :success-text="t('login.sliderSuccessText')"
+                  />
+                </div>
+                <p class="auth-verify-error" :class="{ 'is-visible': !isPassing && isClickPass }">
+                  {{ t('login.placeholder.slider') }}
+                </p>
               </div>
-              <p class="auth-verify-error" :class="{ 'is-visible': !isPassing && isClickPass }">
-                {{ t('login.placeholder.slider') }}
-              </p>
-            </div>
+            </template>
 
             <div class="auth-actions">
               <ElCheckbox v-model="formData.rememberPassword">
                 {{ t('login.rememberPwd') }}
               </ElCheckbox>
-              <button type="button" class="auth-link" @click="showHint">
+              <button type="button" class="auth-link" @click="toForgetPassword">
                 {{ t('login.forgetPwd') }}
               </button>
             </div>
@@ -224,9 +305,9 @@ onMounted(() => {
               </ElButton>
             </div>
 
-            <div class="auth-register">
+            <div v-if="registrationEnabled" class="auth-register">
               <span>{{ t('login.noAccount') }}</span>
-              <button type="button" class="auth-link" @click="showHint">
+              <button type="button" class="auth-link" @click="toRegister">
                 {{ t('login.register') }}
               </button>
             </div>
@@ -235,202 +316,7 @@ onMounted(() => {
           </ElForm>
         </div>
       </div>
+      <NomiSiteFooter variant="auth" />
     </div>
   </div>
 </template>
-
-<style>
-/* 样式全局但全部带 auth- 前缀，只作用于本页。 */
-.auth-page {
-  display: flex;
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
-  background: var(--bg, #fff);
-  color: var(--fg, #0f172a);
-}
-
-.auth-panel {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-
-/* absolute + inset:0 + 定宽高 + margin:auto = 完美的水平垂直居中，且不与入场动画的 transform 冲突 */
-.auth-wrap {
-  position: absolute;
-  inset: 0;
-  width: 440px;
-  height: 650px;
-  padding: 5px 0;
-  margin: auto;
-  overflow: hidden;
-  animation: slideinright 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-}
-
-.auth-form {
-  height: 100%;
-  padding: 40px 0;
-}
-
-.auth-title {
-  margin: 0;
-  font-size: 36px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--fg, #0f172a);
-}
-
-.auth-subtitle {
-  margin: 10px 0 0;
-  font-size: 14px;
-  color: var(--fg-muted, #64748b);
-}
-
-.auth-form .el-form {
-  margin-top: 25px;
-}
-
-.auth-form .el-form-item {
-  margin-bottom: 18px;
-}
-
-.auth-form .el-input__wrapper,
-.auth-form .el-select__wrapper {
-  min-height: 40px;
-  background: var(--bg, #fff);
-  box-shadow: 0 0 0 1px var(--border, #e2e8f0) inset;
-}
-
-.auth-form .el-input__wrapper.is-focus,
-.auth-form .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px var(--el-color-primary, #5d87ff) inset;
-}
-
-.auth-form .el-button.auth-control {
-  width: 100%;
-  height: 40px;
-  font-size: 14px;
-}
-
-.auth-form .el-checkbox__label {
-  font-size: 14px;
-  color: var(--fg-muted, #64748b);
-}
-
-.auth-verify-wrap {
-  position: relative;
-  margin-top: 24px;
-  padding-bottom: 20px;
-}
-
-.auth-verify-cover {
-  position: relative;
-  z-index: 2;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  transition: border-color 0.3s ease;
-}
-
-.auth-verify-cover.is-error {
-  border-color: #ff4e4f;
-}
-
-.auth-verify-error {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  margin: 8px 0 0;
-  padding: 0 1px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #f56c6c;
-  transform: translateY(0);
-  transition: transform 0.3s ease;
-}
-
-.auth-verify-error.is-visible {
-  transform: translateY(40px);
-}
-
-.auth-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-  font-size: 14px;
-}
-
-.auth-submit {
-  margin-top: 30px;
-}
-
-.auth-register {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin-top: 20px;
-  font-size: 14px;
-  color: var(--fg-muted, #64748b);
-}
-
-.auth-demo-hint {
-  margin: 14px 0 0;
-  font-size: 12px;
-  color: var(--fg-muted, #64748b);
-  opacity: 0.8;
-}
-
-.auth-link {
-  padding: 0;
-  font-size: 14px;
-  color: var(--el-color-primary, #5d87ff);
-  background: transparent;
-  border: 0;
-}
-
-.auth-link:hover {
-  border: 0;
-  text-decoration: underline;
-}
-
-@keyframes slideinright {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@media (max-width: 768px) {
-  .auth-wrap {
-    animation: none;
-  }
-
-  .auth-title {
-    font-size: 30px;
-  }
-}
-
-@media (max-width: 640px) {
-  .auth-wrap {
-    width: 100%;
-    padding: 5px 28px;
-  }
-
-  .auth-title {
-    padding-top: 40px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-wrap {
-    animation: none;
-  }
-}
-</style>

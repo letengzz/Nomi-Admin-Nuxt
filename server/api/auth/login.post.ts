@@ -1,37 +1,47 @@
-import { randomUUID } from 'node:crypto';
-
 /**
- * 演示登录接口。仅用于模板，生产必须替换为真实鉴权（数据库校验 + 密码哈希 + 会话/Cookie）。
- * 与前端 app/constants/auth.ts 的演示账号保持一致。
+ * 登录接口（兼容壳）。
+ *
+ * 登录页调用的是 `/api/auth/login`，返回外壳是 `{code:200,data:{token,refreshToken,role,userName}}`。
+ * 这个文件保留那层壳，把真正的鉴权交给数据库：账号来自 `user` 表，密码 scrypt 校验，
+ * 失败次数/锁定写库，token 存 `token` 表。新代码请直接用 `/api/admin/login`。
  */
-const DEMO_ACCOUNTS: Record<string, string> = {
-  super: '123456',
-  admin: '123456',
-  user: '123456',
-};
+import { definePublicHandler } from '../../utils/auth/handler';
+import { ApiError } from '../../utils/http';
+import { loginAdmin } from '../../utils/auth/session';
+import { getAdminRoles } from '../../utils/auth/rbac';
 
-export default defineEventHandler(async (event) => {
-  const body = await readBody<{ userName?: unknown; password?: unknown }>(event);
+export default definePublicHandler(async (event) => {
+  const body = await readBody<{
+    userName?: unknown;
+    password?: unknown;
+    departmentId?: unknown;
+    keepLogin?: unknown;
+  }>(event);
   const userName = typeof body?.userName === 'string' ? body.userName.trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
-  const expected = Object.hasOwn(DEMO_ACCOUNTS, userName) ? DEMO_ACCOUNTS[userName] : undefined;
+  const departmentId = Number(body?.departmentId) || 0;
 
-  if (!expected || password !== expected) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'Invalid credentials',
-      data: { code: 401, msg: '账号或密码错误，请检查后重试' },
-    });
-  }
+  if (!userName || !password) throw new ApiError('请输入账号和密码');
+
+  const result = await loginAdmin(event, userName, password, {
+    keepLogin: body?.keepLogin !== false,
+    departmentId,
+  });
+  if (!result.ok) throw new ApiError(result.msg, result.code);
+
+  // role 只是给旧前端展示用的标签：取第一个角色名，没有则回退到 R_USER。
+  const roles = await getAdminRoles(result.profile.id);
+  const role = roles[0]?.name ?? 'R_USER';
 
   return {
     code: 200,
     msg: 'ok',
     data: {
-      token: randomUUID(),
-      refreshToken: randomUUID(),
-      role: `R_${userName.toUpperCase()}`,
-      userName,
+      token: result.tokens.token,
+      refreshToken: result.tokens.refreshToken,
+      expireTime: result.tokens.expireTime,
+      role,
+      userName: result.profile.username,
     },
   };
 });
