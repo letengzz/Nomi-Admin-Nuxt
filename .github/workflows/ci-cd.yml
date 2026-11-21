@@ -115,6 +115,9 @@ jobs:
         run: pnpm generate
 
       - name: Disable Jekyll and ensure SPA fallback
+        env:
+          # 下面的跳转目标校验要用到它，别只看构建那一步。
+          NUXT_APP_BASE_URL: ${{ steps.site.outputs.base }}
         run: |
           # Pages 默认用 Jekyll 处理产物，会忽略下划线开头的 _nuxt/ 目录；
           # 没有这个空文件，所有 JS/CSS 都会 404。
@@ -128,9 +131,16 @@ jobs:
           else
             echo "::warning::没有 200.html，跳过 SPA 兜底（后台深链可能 404）"
           fi
-          # 兜底校验：后台首屏壳是预渲染的产物，缺了说明 prerender 没生效。
+          # 兜底校验：这几份是预渲染的产物，缺了说明 prerender 没生效。
+          # index.html 特别重要 —— 少了它，站点根 URL 直接是 Pages 的 404 页。
+          test -f .output/public/index.html
           test -f .output/public/admin/index.html
           test -f .output/public/login/index.html
+          # 根路径的跳转必须带上仓库子路径，否则会被跳到 <user>.github.io/admin
+          # 这个不属于本仓库的地址（Pages 只会回一张 404）。
+          grep -q "${NUXT_APP_BASE_URL%/}/admin" .output/public/index.html || {
+            echo "::error::.output/public/index.html 的跳转目标缺少 baseURL"; exit 1;
+          }
 
       - uses: actions/upload-pages-artifact@v3
         with:

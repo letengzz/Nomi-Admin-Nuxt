@@ -61,6 +61,22 @@ const DEMO_PRERENDER_ROUTES = [
   '/admin/notice/create',
 ];
 
+/**
+ * 站点部署根路径。GitHub Pages 的项目页挂在 `/<repo>/` 下（CI 由
+ * `actions/configure-pages` 的 base_path 注入并保证以 `/` 结尾），本地是 `/`。
+ */
+const appBaseURL = process.env.NUXT_APP_BASE_URL || '/';
+
+/**
+ * 拼一条「站内绝对路径」，带上部署子路径。
+ *
+ * `routeRules` 的 redirect 是**给浏览器看**的绝对路径，Nitro 不会替你补
+ * baseURL。子路径部署时写 `/admin` 会跳到 `https://<user>.github.io/admin`
+ * ——那是别人的空间，GitHub Pages 只会回一张 404 页。预渲染出来的
+ * `<meta http-equiv="refresh">` 同理，所以必须在源头就带上 base。
+ */
+const withBase = (path: string): string => `${appBaseURL.replace(/\/+$/, '')}${path}`;
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-01',
   devtools: { enabled: true },
@@ -86,6 +102,11 @@ export default defineNuxtConfig({
     // GitHub Pages 构建由 workflow 注入 NUXT_SITE_URL；本地不设置时仍是占位值。
     url: process.env.NUXT_SITE_URL || 'https://example.com',
     name: 'Nomi Admin',
+  },
+  robots: {
+    // 子路径部署（Pages 项目页 /<repo>/）时不生成 robots.txt：爬虫只认域名根
+    // 下的那一份，写在子目录里等于没写，@nuxtjs/seo 也会直接报错拒绝生成。
+    robotsTxt: appBaseURL === '/',
   },
   // <<< TEMPLATE:MODULE_OPTIONS
 
@@ -141,13 +162,13 @@ export default defineNuxtConfig({
     // 根路径没有介绍页了（app/pages/index.vue 已删除），直接进后台主界面。
     // SSR 下这段重定向由 Nitro 在服务端完成，浏览器不会先拿到 404 再跳。
     // /en 那条是给 prefix_except_default 的英文路由用的，保证带前缀时同样落地。
-    '/': { redirect: '/admin' },
-    '/en': { redirect: '/en/admin' },
+    '/': { redirect: withBase('/admin') },
+    '/en': { redirect: withBase('/en/admin') },
     // 设计文档里的 /auth/register 是 hash 路由模板的路径；Nuxt 用文件路由 /register，
     // 保留一条重定向让旧书签与文档验收路径也能到达。
-    '/auth/register': { redirect: '/register' },
+    '/auth/register': { redirect: withBase('/register') },
     // 同理：文档里的 /#/auth/forget-password。
-    '/auth/forget-password': { redirect: '/forget-password' },
+    '/auth/forget-password': { redirect: withBase('/forget-password') },
     // 后台主布局依赖视口宽度与 localStorage 偏好，整体走 SPA 更省心。
     // i18n 的 /en 前缀是另一套 URL，必须一并声明：否则 /en/admin 会走 SSR，
     // 服务端按「桌面顶栏」输出、客户端水合时按手机宽度换成「紧凑顶栏」，
@@ -201,7 +222,7 @@ export default defineNuxtConfig({
   app: {
     // GitHub Pages 项目页挂在 /<repo>/ 子路径下，构建时必须注入 baseURL，
     // 否则 HTML 里的 /_nuxt/ 资源路径会指向域名根目录而全部 404。
-    baseURL: process.env.NUXT_APP_BASE_URL || '/',
+    baseURL: appBaseURL,
     head: {
       // 不写 htmlAttrs.lang：由 @nuxtjs/i18n 按当前 locale 自动写入，
       // 写死会把英文页面也标成 zh-CN。
