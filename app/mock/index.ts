@@ -72,6 +72,36 @@ const DEMO_IMAGE =
 const ok = <T>(data: T): ApiEnvelope<T> => ({ code: 200, msg: 'ok', data });
 const fail = (msg: string, code = 400): ApiEnvelope<never> => ({ code, msg, data: undefined as never });
 
+/**
+ * 演示站是**只读**的。
+ *
+ * 点开演示站的人只是来看界面的。任何一次「保存」如果真在内存里生效，他会以为
+ * 数据被改了，而刷新之后又全回来 —— 那比直接拒绝更容易误解，所以写操作一律
+ * 回一句「演示环境，不允许操作」。页面本来就在 catch 里弹 error.message，
+ * 不需要每个页面各写一遍提示逻辑。
+ *
+ * 放行的只有「进得来、待得住」必需的几个写接口：登录、退出、换发 token。
+ * 其余写处理器仍留在下面的路由表里 —— 它们与真实接口一一对应，将来想放开
+ * 某个操作（例如允许体验「新增用户」），往这个集合里加一条就行。
+ */
+const DEMO_WRITE_ALLOWED = new Set([
+  'POST /api/auth/login',
+  'POST /api/admin/login',
+  'POST /api/admin/logout',
+  'POST /api/admin/refresh-token',
+]);
+
+/**
+ * 只读提示的语言跟 `<html lang>` 走：mock 不在组件上下文里，拿不到
+ * `useI18n()` 的 composer；而 @nuxtjs/i18n 在服务端渲染和切换语言时都会写这个属性。
+ */
+function demoReadonlyMessage(): string {
+  const lang = import.meta.client ? document.documentElement.lang : '';
+  return lang.toLowerCase().startsWith('en')
+    ? 'Demo environment: data is read-only.'
+    : '演示环境，不允许操作';
+}
+
 // --- 入参取值 --------------------------------------------------------------
 
 function str(query: Query, key: string): string {
@@ -1109,6 +1139,12 @@ export async function mockEnvelope<T>(
   const method = (options.method ?? 'GET').toUpperCase();
   const pathname = url.split('?')[0] ?? url;
   const query = options.query ?? {};
+
+  // 只读闸门：除登录/退出/续期外，所有写操作直接拒绝（见 DEMO_WRITE_ALLOWED）。
+  // 放在最前面，写处理器即便留着也不会被走到。
+  if (method !== 'GET' && !DEMO_WRITE_ALLOWED.has(`${method} ${pathname}`)) {
+    return { code: 403, msg: demoReadonlyMessage(), data: undefined as T };
+  }
   // 上传接口的 body 是 FormData，不是普通对象；这里只取普通对象的键值。
   const rawBody = options.body;
   const body: Body =
