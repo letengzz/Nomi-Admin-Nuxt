@@ -26,6 +26,7 @@ import { useNotificationStore } from '../../stores/notification';
 import { useSettingStore } from '../../stores/setting';
 import { useSiteStore } from '../../stores/site';
 import { emitNomiBus } from '../../utils/bus';
+import { isDemoMode } from '../../utils/api';
 import { normalizeMenuPath } from '../../utils/path';
 
 const { t, locale } = useI18n();
@@ -81,6 +82,15 @@ const envBadgeTitle = computed(() => {
   const base = t(site.envLabelKey);
   return site.envUrl ? `${base} · ${site.envUrl}` : base;
 });
+
+/**
+ * 演示站不显示环境角标。
+ *
+ * 角标是给运维看的「这套连的是哪个库」，静态演示站既没有后端也没有环境之分，
+ * 挂个「开发环境」只会让点进来的人以为站点配置错了。其他部署仍按系统配置显示。
+ */
+const isDemo = isDemoMode();
+const showEnvBadge = computed(() => site.showEnvBadge && !isDemo);
 
 interface MoreAction {
   key: string;
@@ -239,7 +249,7 @@ onUnmounted(() => {
           放右边这组图标前面，四种布局下位置都稳定，也最靠近用户视线落点。
         -->
         <span
-          v-if="site.showEnvBadge"
+          v-if="showEnvBadge"
           class="nomi-env-badge"
           :class="`is-${site.env}`"
           :title="envBadgeTitle"

@@ -26,6 +26,7 @@ import NomiAuthTopBar from '../components/auth/NomiAuthTopBar.vue';
 import NomiSiteFooter from '../components/layout/NomiSiteFooter.vue';
 import NomiDragVerify from '../components/auth/NomiDragVerify.vue';
 import { DEMO_ACCOUNTS, DEMO_PASSWORD, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+import { isDemoMode } from '../utils/api';
 import { HOME_PATH } from '../constants/layout';
 import {
   fetchLogin,
@@ -41,6 +42,8 @@ const { t, locale } = useI18n();
 const route = useRoute();
 const localePath = useLocalePath();
 const userStore = useUserStore();
+/** 演示站（GitHub Pages 那套静态构建）才有的脚本化行为，真实登录页一概不参与。 */
+const isDemo = isDemoMode();
 
 useHead({ title: computed(() => t('login.pageTitle')) });
 
@@ -102,9 +105,13 @@ const rules = computed<FormRules>(() => ({
  *
  * 该部门下有演示账号就自动填入账号密码（三个演示账号分别挂在三个部门下）；
  * 没有就保持用户已经输入的内容 —— 清空反而会让人以为选错了。
+ *
+ * 只对演示站生效：真实登录页的部门列表来自数据库，部门 id 一旦与演示账号
+ * 撞号（1/2/3 很容易撞），就会把人家的用户名密码顶进输入框。
  */
 function applyDepartment(id: number): void {
   formData.departmentId = id;
+  if (!isDemo) return;
   const demo = DEMO_ACCOUNTS.find((item) => item.departmentId === id);
   if (!demo) return;
   formData.userName = demo.userName;
@@ -199,11 +206,14 @@ onMounted(async () => {
   captchaEnabled.value = loginConfig.captchaEnabled;
   registrationEnabled.value = loginConfig.registrationEnabled;
   departments.value = deptList;
-  // 默认选第一个「有演示账号」的部门：打开页面就能直接点登录。
-  const preferred = DEMO_ACCOUNTS.map((item) => item.departmentId).find((id) =>
-    departments.value.some((dept) => dept.id === id),
-  );
-  if (preferred) applyDepartment(preferred);
+  // 演示站默认选第一个「有演示账号」的部门：打开页面就能直接点登录。
+  // 真实环境不替用户做选择 —— 部门是登录凭据的一部分，选错会登不上。
+  if (isDemo) {
+    const preferred = DEMO_ACCOUNTS.map((item) => item.departmentId).find((id) =>
+      departments.value.some((dept) => dept.id === id),
+    );
+    if (preferred) applyDepartment(preferred);
+  }
 
   const remembered = localStorage.getItem(REMEMBERED_ACCOUNT_KEY);
   if (remembered) formData.userName = remembered;
@@ -312,7 +322,11 @@ onMounted(async () => {
               </button>
             </div>
 
-            <p class="auth-demo-hint">{{ t('login.demoHint') }}</p>
+            <!--
+              演示提示只在 GitHub Pages 那套静态站出现（NUXT_PUBLIC_DEMO=1）。
+              真实部署里「密码统一为 123456」是错误信息，不能露给用户看。
+            -->
+            <p v-if="isDemo" class="auth-demo-hint">{{ t('login.demoHint') }}</p>
           </ElForm>
         </div>
       </div>
