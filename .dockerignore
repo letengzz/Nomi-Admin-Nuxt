@@ -30,6 +30,10 @@ template.config.json
 npm-debug.log*
 pnpm-debug.log*
 
+# 运行时上传的图片（data/uploads）：容器里这个路径由 compose 的命名卷提供，
+# 宿主机上的历史文件不该混进构建上下文。
+data
+
 # 文档与测试：运行期用不到
 README.md
 *.md

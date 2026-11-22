@@ -46,6 +46,11 @@ ENV NODE_ENV=production
 ENV NITRO_PORT=3000
 ENV NITRO_HOST=0.0.0.0
 
+# 运行时上传目录（站点 logo、公告配图，见 server/utils/site-assets.ts）。
+# 必须先建好并交给 node 用户：compose 把命名卷挂到这个路径，卷首次创建时继承镜像里
+# 这个目录的属主 —— 不建的话挂载点是 root:root，以 node 运行的进程上传时直接 EACCES。
+RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
+
 # 用 node 用户（镜像自带，uid 1000）而不是 root：
 # 容器内进程逃逸时，非 root 能少走很多路。
 USER node

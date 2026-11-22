@@ -386,18 +386,26 @@ node .output/server/index.mjs
 生产环境至少配置合适的 `NITRO_HOST` 与 `NITRO_PORT`，并通过进程管理器或
 容器平台保障进程常驻。
 
-### Docker Compose
+### Docker Compose（应用 + MySQL）
 
-仅启动 Nuxt 应用：
+`compose.yaml` 自带 MySQL，一条命令起「应用 + 数据库」，库表与种子由应用首启自动写入
+（日志出现 `[db] 种子数据已写入：…` 即成功）。
+
+首次部署先把三个变量补进 `.env`（compose 会读它做变量替换，文件本身不进镜像）：
 
 ```bash
-docker compose up --build -d
+MYSQL_ROOT_PASSWORD=***   # 容器内 MySQL 的 root 密码，只有 compose 用得到
+MYSQL_PASSWORD=***        # 应用连库用的 nomi 账号密码
+TOKEN_SECRET=***          # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-同时启动 Nginx 反向代理：
+缺任一项 `docker compose up` 会直接报错退出 —— 刻意如此，免得起了一个连不上库、
+token 用开发默认密钥的容器。
 
 ```bash
-docker compose --profile proxy up --build -d
+docker compose up --build -d                  # 应用 :3000 + MySQL
+docker compose --profile proxy up --build -d  # 再加 Nginx :8080 → app:3000
+docker compose logs -f app                    # 看首启建库/灌种子日志
 ```
 
 默认端口：
@@ -405,6 +413,10 @@ docker compose --profile proxy up --build -d
 - Nuxt 应用：`3000`
 - Nginx 代理：`8080`
 - 健康检查：`/api/health`
+
+数据持久化在两个命名卷上：`mysql_data`（数据库文件）、`uploads`（站点 logo、公告配图，
+挂到容器内 `/app/data/uploads`）。**`docker compose down -v` 会连这两个卷一起删**，
+对生产库执行前先确认。
 
 ## CI / CD 与自动部署
 

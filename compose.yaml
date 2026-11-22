@@ -1,9 +1,49 @@
-# 单机起一个可用实例的最小配置。
+# 单机起一个可用实例的最小配置：应用 + MySQL（+ 可选 Nginx）。
 #
 # 为什么 compose 里不写 `deploy.resources`：那些在 Swarm 之外不生效，
 # 写在单机文件里只会让人以为「已经限制过内存了」。真要限，用 `mem_limit`。
+#
+# 同目录有 `.env` 时 compose 会自动读它做**变量替换**（`${VAR}` 那几处）；
+# 容器本身不读 `.env`，它拿到的环境变量只有下面 environment 里显式列出的那些。
+# `${VAR:?提示}` 的写法表示「没配就直接报错退出」—— 少一个密钥时宁可起不来，
+# 也好过起了一个连不上库、token 用开发默认值的容器。
+#
+# 库表与种子不需要手工准备：应用启动时会自己建库、建表、灌种子
+# （见 server/database/init.ts）。MySQL 的 healthcheck 就是为这一步铺路：
+# 库没 ready 就让 app 等着，省掉「连不上 → 报错 → 重启」这一轮。
 
 services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      # 排序规则必须和应用建库时用的一致（见 init.ts 的 CREATE DATABASE），
+      # 两边不一致时，中文列上的唯一键/去重行为会有差异。
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 里设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nomi_admin}
+      # 应用不用 root 连库：这个账号由镜像自动创建，权限只落在 MYSQL_DATABASE 上。
+      MYSQL_USER: nomi
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 里设置 MYSQL_PASSWORD}
+    volumes:
+      # 不挂卷 = 每次 down/up 都是空库，账号与菜单全没了
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # 用 mysqladmin ping 而不是 `SELECT 1`：镜像自带，少一层依赖。
+      # **必须 CMD-SHELL**：exec 形式（["CMD", ...]）不经 shell，`$VAR` 不会展开，
+      # 密码会以字面量传进去 → 认证失败 → 永远 healthy 不了 → app 一直等。
+      # `$$` 是 compose 的转义，sh 里拿到的是 $MYSQL_ROOT_PASSWORD。
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 -p"$$MYSQL_ROOT_PASSWORD"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # 首次启动要初始化数据目录，给足时间再开始计失败次数
+      start_period: 20s
+    # 刻意不限制内存：MySQL 被 OOM Killer 干掉的表现是「应用突然连不上库」，
+    # 比慢一点难查得多。真要限，按实际 buffer pool 配置再定。
+
   app:
     build:
       context: .
@@ -17,6 +57,22 @@ services:
       # 只监听容器内网卡 —— 宿主机通过上面的 ports 映射进来，不需要容器对外广播
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: '3000'
+      # 连库参数全部显式给：镜像里没有 .env，容器里的 127.0.0.1 也不是宿主机
+      MYSQL_HOST: mysql
+      MYSQL_PORT: '3306'
+      MYSQL_USER: nomi
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 里设置 MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nomi_admin}
+      # 不配就会用代码里的开发默认值 —— 等于线上 token 密钥公开
+      TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 里设置 TOKEN_SECRET}
+      # 上传落在命名卷里。镜像内的 /app 归 root、进程是 node(1000)，
+      # 所以用卷而不是 bind mount —— 后者要自己 chown 1000:1000。
+      NOMI_UPLOAD_DIR: /app/data/uploads
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
     # 健康检查与 Dockerfile 里的保持一致：编排系统靠它判断要不要重启
     healthcheck:
       test:
@@ -27,7 +83,8 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 10s
+      # 首启要等 MySQL healthy + 建表灌种子（里面还有 scrypt 哈希），给宽一点
+      start_period: 30s
     mem_limit: 512m
 
   # 需要 HTTPS 与静态资源缓存时启用它，并在 DNS/证书侧指向这里的 80/443。
@@ -45,3 +102,9 @@ services:
     profiles:
       # 默认不启动：`docker compose --profile proxy up` 才会带上它
       - proxy
+
+volumes:
+  # 数据库文件：`docker compose down -v` 会连它一起删，别对生产库随手加 -v
+  mysql_data:
+  # 站点 logo、公告配图等运行时上传的文件
+  uploads:
