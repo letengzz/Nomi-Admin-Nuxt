@@ -61,6 +61,7 @@ function context(overrides: Partial<AdminContext> = {}): AdminContext {
     isSuper: false,
     ruleNames: names,
     rules,
+    scopeDepartmentId: 0,
     ...overrides,
   };
 }

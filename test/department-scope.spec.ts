@@ -13,6 +13,7 @@ import {
   collectDepartmentIds,
   departmentScopeCondition,
   isDepartmentVisible,
+  isLoginDepartmentAllowed,
   isUserVisible,
   userScopeCondition,
   userScopeSubquery,
@@ -80,6 +81,29 @@ describe('buildDepartmentScope', () => {
     expect(superScope.selfId).toBe(1);
     expect(techScope.selfId).toBe(2);
   });
+
+  it('登录所选部门优先作为范围根：技术中心账号选前端组只看前端组', () => {
+    // 账号属技术中心(2)，登录时选了前端组(3)：范围收窄到 3，看不到技术中心本级的 2/4。
+    expect(
+      buildDepartmentScope(
+        { isSuper: false, adminId: 2, departmentId: 2, scopeDepartmentId: 3 },
+        TREE,
+      ).departmentIds,
+    ).toEqual([3]);
+    // 选回技术中心(2)：恢复看 2 及下级。
+    expect(
+      buildDepartmentScope(
+        { isSuper: false, adminId: 2, departmentId: 2, scopeDepartmentId: 2 },
+        TREE,
+      ).departmentIds?.sort((a, b) => a - b),
+    ).toEqual([2, 3, 4]);
+    // 没选（0 / 缺省）：退回账号所属部门，兼容老会话与 API 直连。
+    expect(
+      buildDepartmentScope({ isSuper: false, adminId: 2, departmentId: 2, scopeDepartmentId: 0 }, TREE)
+        .departmentIds?.sort((a, b) => a - b),
+    ).toEqual([2, 3, 4]);
+    expect(techScope.departmentIds?.sort((a, b) => a - b)).toEqual([2, 3, 4]);
+  });
 });
 
 describe('可见性判定', () => {
@@ -103,6 +127,37 @@ describe('可见性判定', () => {
     expect(() => assertDepartmentScopeAllows(techScope, 3)).not.toThrow();
     expect(() => assertDepartmentScopeAllows(techScope, 1)).toThrow(/本部门及下级部门/);
     expect(() => assertDepartmentScopeAllows(superScope, 1)).not.toThrow();
+  });
+});
+
+describe('isLoginDepartmentAllowed（登录部门闸门）', () => {
+  it('所选必须在账号部门子树内：技术中心账号可选自己和下级小组', () => {
+    // admin 属技术中心(2)：技术中心 / 前端组 / 后端组都能选。
+    expect(isLoginDepartmentAllowed(2, 2, TREE)).toBe(true);
+    expect(isLoginDepartmentAllowed(2, 3, TREE)).toBe(true);
+    expect(isLoginDepartmentAllowed(2, 4, TREE)).toBe(true);
+    // 总经办是上级、市场运营中心是旁支，都不能选 —— 选了等于放大可见范围。
+    expect(isLoginDepartmentAllowed(2, 1, TREE)).toBe(false);
+    expect(isLoginDepartmentAllowed(2, 8, TREE)).toBe(false);
+    expect(isLoginDepartmentAllowed(2, 5, TREE)).toBe(false);
+  });
+
+  it('前端组账号只能选前端组，选技术中心/兄弟组都不行', () => {
+    expect(isLoginDepartmentAllowed(3, 3, TREE)).toBe(true);
+    expect(isLoginDepartmentAllowed(3, 2, TREE)).toBe(false);
+    expect(isLoginDepartmentAllowed(3, 4, TREE)).toBe(false);
+  });
+
+  it('超管在总经办(1)：整棵树都能选', () => {
+    expect(isLoginDepartmentAllowed(1, 8, TREE)).toBe(true);
+    expect(isLoginDepartmentAllowed(1, 3, TREE)).toBe(true);
+    expect(isLoginDepartmentAllowed(1, 1, TREE)).toBe(true);
+  });
+
+  it('未选部门 / 账号无部门 / 脏数据都不放行', () => {
+    expect(isLoginDepartmentAllowed(2, 0, TREE)).toBe(false);
+    expect(isLoginDepartmentAllowed(0, 2, TREE)).toBe(false);
+    expect(isLoginDepartmentAllowed(2, 999, TREE)).toBe(false);
   });
 });
 

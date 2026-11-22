@@ -211,6 +211,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`browser\` varchar(60) NOT NULL DEFAULT '',
     \`os\` varchar(60) NOT NULL DEFAULT '',
     \`useragent\` varchar(255) NOT NULL DEFAULT '',
+    \`scope_department_id\` int unsigned NOT NULL DEFAULT 0 COMMENT '登录所选部门，作为本次会话的数据范围根；0 = 按账号所属部门',
     PRIMARY KEY (\`token\`),
     KEY \`idx_user\` (\`type\`,\`user_id\`),
     KEY \`idx_expire\` (\`expire_time\`),

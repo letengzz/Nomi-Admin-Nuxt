@@ -496,6 +496,22 @@ const routes: Route[] = [
     path: '/api/admin/users/reset-password',
     handler: ({ body }) => ok({ id: bodyNum(body, 'id') }),
   },
+  // 导入 / 导出在静态站上没有意义：拉不到库也写不进去，给一句人话比 404 好。
+  {
+    method: 'GET',
+    path: '/api/admin/users/export',
+    handler: () => fail('演示环境不支持导出，请部署后再使用'),
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/users/import-template',
+    handler: () => fail('演示环境不支持下载导入模板，请部署后再使用'),
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/users/import',
+    handler: () => fail('演示环境不支持导入账号，请部署后再使用'),
+  },
 
   // 角色
   {

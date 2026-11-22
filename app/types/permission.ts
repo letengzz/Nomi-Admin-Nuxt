@@ -168,6 +168,84 @@ export interface UserListResult {
   limit: number;
 }
 
+// --- 账号导入 / 导出 ---------------------------------------------------------
+
+/** 服务端生成的表格文件：base64 是为了让下载也走统一信封（见 export.get.ts）。 */
+export interface SpreadsheetFile {
+  fileName: string;
+  mime: string;
+  base64: string;
+  /** 导出的总条数（模板接口不返回） */
+  total?: number;
+  /** 是否因为超过上限被截断 */
+  truncated?: boolean;
+}
+
+export type UsernameStrategy = 'update' | 'skip' | 'abort';
+export type ConflictStrategy = 'skip' | 'abort';
+
+export interface UserImportStrategies {
+  /** 账号已存在：修改数据 / 跳过该行 / 停止导入 */
+  onUsername: UsernameStrategy;
+  /** 邮箱已存在：跳过该行 / 停止导入 */
+  onEmail: ConflictStrategy;
+  /** 手机已存在：跳过该行 / 停止导入 */
+  onMobile: ConflictStrategy;
+  /** 状态列留空时用的状态 */
+  defaultStatus: 'enable' | 'disable';
+}
+
+export interface UserImportPreviewRow {
+  line: number;
+  username: string;
+  nickname: string;
+  email: string;
+  mobile: string;
+  gender: string;
+  departmentName: string;
+  roleNames: string;
+  status: string;
+  conflicts: { username: boolean; email: boolean; mobile: boolean };
+  /** 阻断性问题：这一行一定会失败，与策略无关 */
+  errors: string[];
+}
+
+export interface UserImportPreview {
+  total: number;
+  summary: {
+    total: number;
+    create: number;
+    username: number;
+    email: number;
+    mobile: number;
+    error: number;
+  };
+  rows: UserImportPreviewRow[];
+  /** 预览被截掉的条数（服务端只回前 100 行） */
+  truncated: number;
+}
+
+export interface UserImportOutcome {
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  aborted: boolean;
+  abortedLine: number;
+  abortedReason: string;
+  failures: Array<{ line: number; reason: string }>;
+}
+
+export interface UserImportResult {
+  mode: 'parse' | 'commit';
+  fileName: string;
+  strategies: UserImportStrategies;
+  preview: UserImportPreview;
+  /** 只有 commit 才返回 */
+  outcome?: UserImportOutcome;
+}
+
+
 /** 通知公告。枚举值与服务端 notice-service.ts 保持一致。 */
 export type NoticeCategory = 'notice' | 'bulletin' | 'activity';
 export type NoticeMethod = 'internal' | 'email' | 'sms';

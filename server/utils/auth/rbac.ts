@@ -80,6 +80,8 @@ export interface AdminContext {
   ruleNames: Set<string>;
   /** 有权且启用的节点记录（菜单树、authNode、授权树都从这里派生） */
   rules: RuleRow[];
+  /** 登录时所选部门，本次会话的数据范围根；0 = 未选，退回账号所属部门 */
+  scopeDepartmentId: number;
 }
 
 /** `'1, 21,22'` → `['1','21','22']`；`'*'` 原样保留。 */
@@ -139,7 +141,11 @@ export async function getAllEnabledRules(): Promise<RuleRow[]> {
  * ★ 超管绕过第一处：`rules` 取全表，而不是「把所有 id 查出来」——
  * 这样未来新增节点不需要给超管组补授权。
  */
-export async function loadAdminContext(admin: AdminRow, token: string): Promise<AdminContext> {
+export async function loadAdminContext(
+  admin: AdminRow,
+  token: string,
+  scopeDepartmentId = 0,
+): Promise<AdminContext> {
   const roles = await getAdminRoles(admin.id);
   const ruleIds = [...new Set(roles.flatMap((role) => parseRules(role.rules)))];
 
@@ -150,7 +156,7 @@ export async function loadAdminContext(admin: AdminRow, token: string): Promise<
   const ruleNames = new Set(rules.map((rule) => rule.name.toLowerCase()));
   if (isSuper) ruleNames.add('*');
 
-  return { admin, token, roles, ruleIds, isSuper, ruleNames, rules };
+  return { admin, token, roles, ruleIds, isSuper, ruleNames, rules, scopeDepartmentId };
 }
 
 /**

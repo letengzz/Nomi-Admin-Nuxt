@@ -16,8 +16,6 @@ import {
   ElInput,
   ElMessage,
   ElNotification,
-  ElOption,
-  ElSelect,
   type FormInstance,
   type FormRules,
 } from 'element-plus';
@@ -25,15 +23,10 @@ import NomiAuthBrandPanel from '../components/auth/NomiAuthBrandPanel.vue';
 import NomiAuthTopBar from '../components/auth/NomiAuthTopBar.vue';
 import NomiSiteFooter from '../components/layout/NomiSiteFooter.vue';
 import NomiDragVerify from '../components/auth/NomiDragVerify.vue';
-import { DEMO_ACCOUNTS, DEMO_PASSWORD, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+import { DEMO_PASSWORD, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
 import { isDemoMode } from '../utils/api';
 import { HOME_PATH } from '../constants/layout';
-import {
-  fetchLogin,
-  fetchLoginDepartments,
-  getErrorMessage,
-  type LoginDepartment,
-} from '../services/auth';
+import { fetchLogin, getErrorMessage } from '../services/auth';
 import { usePermissionStore } from '../stores/permission';
 import { useUserStore } from '../stores/user';
 import { fetchLoginConfig } from '../services/system-config';
@@ -59,64 +52,15 @@ const captchaEnabled = ref(true);
 const registrationEnabled = ref(true);
 
 const formData = reactive({
-  /** 选中的部门 id（0 = 还没选） */
-  departmentId: 0,
   userName: '',
   password: '',
   rememberPassword: true,
-});
-
-/** 登录页的部门表来自免登录接口，拿不到就退化成「手动输入账号」。 */
-const departments = ref<LoginDepartment[]>([]);
-
-/**
- * 部门树展开成带缩进的下拉：深度优先、同级按接口给的顺序（weigh 降序），
- * 每层缩进一个全角空格。不直接用 el-tree-select 是因为这里只是「选一个部门」，
- * 下拉比树更轻。
- */
-const departmentOptions = computed(() => {
-  const children = new Map<number, LoginDepartment[]>();
-  for (const dept of departments.value) {
-    const siblings = children.get(dept.pid) ?? [];
-    siblings.push(dept);
-    children.set(dept.pid, siblings);
-  }
-
-  const rows: Array<{ id: number; label: string }> = [];
-  const walk = (pid: number, depth: number): void => {
-    // 层级上限是防御用的：数据被人手工改成环时不至于把登录页挂死。
-    if (depth > 8) return;
-    for (const dept of children.get(pid) ?? []) {
-      rows.push({ id: dept.id, label: `${'\u3000'.repeat(depth)}${dept.name}` });
-      walk(dept.id, depth + 1);
-    }
-  };
-  walk(0, 0);
-  return rows;
 });
 
 const rules = computed<FormRules>(() => ({
   userName: [{ required: true, message: t('login.placeholder.username'), trigger: 'blur' }],
   password: [{ required: true, message: t('login.placeholder.password'), trigger: 'blur' }],
 }));
-
-/**
- * 选部门 = 演示脚本。
- *
- * 该部门下有演示账号就自动填入账号密码（三个演示账号分别挂在三个部门下）；
- * 没有就保持用户已经输入的内容 —— 清空反而会让人以为选错了。
- *
- * 只对演示站生效：真实登录页的部门列表来自数据库，部门 id 一旦与演示账号
- * 撞号（1/2/3 很容易撞），就会把人家的用户名密码顶进输入框。
- */
-function applyDepartment(id: number): void {
-  formData.departmentId = id;
-  if (!isDemo) return;
-  const demo = DEMO_ACCOUNTS.find((item) => item.departmentId === id);
-  if (!demo) return;
-  formData.userName = demo.userName;
-  formData.password = DEMO_PASSWORD;
-}
 
 function resetDragVerify(): void {
   dragRef.value?.reset();
@@ -150,7 +94,6 @@ async function handleSubmit(): Promise<void> {
     const result = await fetchLogin({
       userName: formData.userName.trim(),
       password: formData.password,
-      departmentId: formData.departmentId,
     });
     // 凭证与身份一次写完：store 内部会顺手判断「是不是换了个人」，
     // 是的话清掉上一位用户留下的标签页（docs/状态管理.md 3.4）。
@@ -201,18 +144,15 @@ watch(locale, () => {
 });
 
 onMounted(async () => {
-  // 验证码开关与部门表都是登录页必需的展示条件，并行拿，谁慢都不拦另一个。
-  const [loginConfig, deptList] = await Promise.all([fetchLoginConfig(), fetchLoginDepartments()]);
+  const loginConfig = await fetchLoginConfig();
   captchaEnabled.value = loginConfig.captchaEnabled;
   registrationEnabled.value = loginConfig.registrationEnabled;
-  departments.value = deptList;
-  // 演示站默认选第一个「有演示账号」的部门：打开页面就能直接点登录。
-  // 真实环境不替用户做选择 —— 部门是登录凭据的一部分，选错会登不上。
+
+  // 演示站默认预填 admin（技术中心）：打开页面就能直接点登录，登录后按账号所属部门
+  // 展示本部门及下级部门的内容。真实环境不预填，账号是用户自己输入的登录凭据。
   if (isDemo) {
-    const preferred = DEMO_ACCOUNTS.map((item) => item.departmentId).find((id) =>
-      departments.value.some((dept) => dept.id === id),
-    );
-    if (preferred) applyDepartment(preferred);
+    formData.userName = 'admin';
+    formData.password = DEMO_PASSWORD;
   }
 
   const remembered = localStorage.getItem(REMEMBERED_ACCOUNT_KEY);
@@ -247,22 +187,6 @@ onMounted(async () => {
             :rules="rules"
             @keyup.enter="handleSubmit"
           >
-            <ElFormItem prop="departmentId">
-              <ElSelect
-                v-model="formData.departmentId"
-                class="auth-control"
-                :placeholder="t('login.departmentLabel')"
-                @change="applyDepartment"
-              >
-                <ElOption
-                  v-for="dept in departmentOptions"
-                  :key="dept.id"
-                  :label="dept.label"
-                  :value="dept.id"
-                />
-              </ElSelect>
-            </ElFormItem>
-
             <ElFormItem prop="userName">
               <ElInput
                 v-model.trim="formData.userName"

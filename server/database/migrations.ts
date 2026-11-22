@@ -932,6 +932,22 @@ async function backfillSystemConfig(pool: Pool): Promise<void> {
   );
 }
 
+/**
+ * 会话表新增「登录所选部门」：作为本次会话的数据范围根。
+ *
+ * 登录页让用户在其部门子树里选一块（技术中心 → 前端组），选中的部门必须
+ * 记进会话，后续所有列表接口才能按它裁剪。老会话没有这一列时按 0 处理，
+ * 由部门范围逻辑回落成「按账号所属部门」，行为与改造前一致。
+ */
+async function addTokenScopeDepartment(pool: Pool): Promise<void> {
+  if (!(await tableExists(pool, 'token'))) return;
+  if (!(await hasColumn(pool, 'token', 'scope_department_id'))) {
+    await pool.query(
+      "ALTER TABLE `token` ADD COLUMN `scope_department_id` int unsigned NOT NULL DEFAULT 0 COMMENT '登录所选部门，作为本次会话的数据范围根；0 = 按账号所属部门' AFTER `useragent`",
+    );
+  }
+}
+
 const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-15-drop-user-type', run: dropUserType },
   { name: '2026-11-15-add-user-department', run: addUserDepartment },
@@ -990,6 +1006,10 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-20-sync-notice-detail-entries', run: syncLanguageSeedEntries },
   // 系统配置初始行落库：老库补齐默认值（只入不改），与全新安装保持一致。
   { name: '2026-11-21-backfill-system-config', run: backfillSystemConfig },
+  // 用户管理新增导入 / 导出：同步抽屉、策略、预览与结果提示的新词条。
+  { name: '2026-11-22-sync-user-import-entries', run: syncLanguageSeedEntries },
+  // 登录所选部门记入会话：老 token 表补列，作为本次会话数据范围根。
+  { name: '2026-11-22-add-token-scope-department', run: addTokenScopeDepartment },
 ];
 
 /**

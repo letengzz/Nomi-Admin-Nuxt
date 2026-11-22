@@ -14,6 +14,9 @@ import type {
   LoginResult,
   NoticeItem,
   RoleItem,
+  SpreadsheetFile,
+  UserImportResult,
+  UserImportStrategies,
   UserListResult,
 } from '../types/permission';
 
@@ -180,6 +183,42 @@ export function resetUserPassword(id: number, password: string): Promise<{ id: n
     method: 'POST',
     body: { id, password },
   });
+}
+
+/**
+ * 导出账号：与列表同一套筛选条件。
+ *
+ * 服务端回 base64（见 export.get.ts 的注释），这里只负责拿到文件本身，
+ * 落盘交给页面 —— 页面知道当前该叫什么名字。
+ */
+export function exportUsers(query: UserListQuery = {}): Promise<SpreadsheetFile> {
+  return apiFetch<SpreadsheetFile>('/api/admin/users/export', { query });
+}
+
+/** 下载导入模板：列顺序与解析器共用服务端的同一份定义。 */
+export function fetchUserImportTemplate(): Promise<SpreadsheetFile> {
+  return apiFetch<SpreadsheetFile>('/api/admin/users/import-template');
+}
+
+/**
+ * 导入账号。mode=parse 只解析出预览，mode=commit 才真正写库。
+ *
+ * 每次都用同一个 File 重新上传：服务端重新解析一遍，前端不需要（也不应该）
+ * 把「我解析出来的行」回传上去 —— 那样等于把校验权交给了浏览器。
+ */
+export function importUsers(
+  file: File,
+  mode: 'parse' | 'commit',
+  strategies: UserImportStrategies,
+): Promise<UserImportResult> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('mode', mode);
+  form.append('onUsername', strategies.onUsername);
+  form.append('onEmail', strategies.onEmail);
+  form.append('onMobile', strategies.onMobile);
+  form.append('defaultStatus', strategies.defaultStatus);
+  return apiFetch<UserImportResult>('/api/admin/users/import', { method: 'POST', body: form });
 }
 
 // --- 规则节点 --------------------------------------------------------------

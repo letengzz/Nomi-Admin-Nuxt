@@ -123,19 +123,3 @@ export function getErrorMessage(error: unknown, fallback = '登录失败，请�
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
-
-/** 登录页「选择部门」用的部门表（免登录接口，只返回 id / pid / name）。 */
-export interface LoginDepartment {
-  id: number;
-  pid: number;
-  name: string;
-}
-
-export async function fetchLoginDepartments(
-  request: typeof $fetch = $fetch,
-): Promise<LoginDepartment[]> {
-  const res = await callApi<{ list: LoginDepartment[] }>('/api/auth/departments', { request });
-  if (res.code !== 200) return [];
-  // 登录页靠它填下拉：拿不到就退化成「只能手输账号」，不该整页报错。
-  return res.data?.list ?? [];
-}

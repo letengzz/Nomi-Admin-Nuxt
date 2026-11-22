@@ -122,7 +122,7 @@ export async function resolveAdmin(
   // 在线用户页的「最后活跃」来自这里：每个已认证请求刷新一次（内部有 20s 节流）。
   if (options.touch !== false) touchSession(record);
 
-  const context = await loadAdminContext(admin, token);
+  const context = await loadAdminContext(admin, token, Number(record.scope_department_id) || 0);
   return { ok: true, context };
 }
 
@@ -139,7 +139,8 @@ function clientIp(event: H3Event): string {
  * 与文档 4.6.4 一致的三道闸：账号存在 → 未锁定 → 密码正确（且状态启用）。
  * 失败信息统一成「账号或密码错误」，不区分「账号不存在」——减少账号枚举面。
  *
- * 第四道闸（部门）：登录页选了部门时，账号必须属于该部门或其下级部门。
+ * 第四道闸（部门）：登录页选了部门时，所选部门必须落在「账号所属部门 + 其下级」内 ——
+ * 即账号在自己部门范围内往下挑本次要看哪一块，不能往上/往旁支挑来放大可见范围。
  * 放在密码之后校验，避免未通过密码就泄露账号的部门归属；未选部门（<=0）
  * 则放行，兼容 API 直连与部门下拉临时拿不到的场景。
  */
@@ -205,15 +206,15 @@ export async function loginAdmin(
   }
 
   // 部门闸：所选部门有效时才校验。部门归属不放进「账号或密码错误」那句，
-  // 因为用户是自己选部门的，必须明确知道「账号不在这个部门」才能纠正选择。
+  // 因为用户是自己选部门的，必须明确知道「账号管不到这个部门」才能纠正选择。
   const selectedDepartmentId = Number(options.departmentId) || 0;
   if (selectedDepartmentId > 0) {
     const [departments] = await getPool().query<Array<{ id: number; pid: number } & RowDataPacket>>(
       'SELECT `id`,`pid` FROM `department`',
     );
     if (!isLoginDepartmentAllowed(admin.department_id, selectedDepartmentId, departments)) {
-      await writeLog('failed', false, '账号不在所选部门及其下级部门', admin);
-      return { ok: false, code: 0, msg: '该账号不在所选部门及其下级部门，请重新选择部门' };
+      await writeLog('failed', false, '所选部门不在账号所属部门及其下级部门', admin);
+      return { ok: false, code: 0, msg: '所选部门不在账号所属部门及其下级部门，请重新选择部门' };
     }
   }
 
@@ -231,6 +232,7 @@ export async function loginAdmin(
     browser: meta.browser,
     os: meta.os,
     useragent: meta.useragent,
+    scopeDepartmentId: selectedDepartmentId,
   });
   await writeLog('login', true, '', admin);
   return {

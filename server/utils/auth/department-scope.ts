@@ -66,16 +66,24 @@ export interface ScopeIdentity {
   isSuper: boolean;
   adminId: number;
   departmentId: number;
+  /** 登录所选部门（范围根）；0 / 缺省 = 退回账号所属部门 */
+  scopeDepartmentId?: number;
 }
 
-/** 纯函数：不连库即可推导范围，也是单测覆盖的入口。 */
+/**
+ * 纯函数：不连库即可推导范围，也是单测覆盖的入口。
+ *
+ * 范围根优先取登录时所选部门 —— 这样账号属技术中心、登录选了前端组的人，
+ * 进来只看前端组；没选部门（老会话 / API 直连）才退回账号所属部门。
+ */
 export function buildDepartmentScope(
   identity: ScopeIdentity,
   departments: ReadonlyArray<DepartmentScopeNode>,
 ): DepartmentScope {
   if (identity.isSuper) return { departmentIds: null, selfId: identity.adminId };
+  const rootId = Number(identity.scopeDepartmentId) || Number(identity.departmentId) || 0;
   return {
-    departmentIds: collectDepartmentIds(departments, Number(identity.departmentId) || 0),
+    departmentIds: collectDepartmentIds(departments, rootId),
     selfId: identity.adminId,
   };
 }
@@ -86,6 +94,7 @@ export async function resolveDepartmentScope(context: AdminContext): Promise<Dep
     isSuper: context.isSuper,
     adminId: Number(context.admin.id),
     departmentId: Number(context.admin.department_id ?? 0),
+    scopeDepartmentId: Number(context.scopeDepartmentId) || 0,
   };
   if (identity.isSuper) return buildDepartmentScope(identity, []);
 
@@ -102,10 +111,17 @@ export function isDepartmentVisible(scope: DepartmentScope, departmentId: number
 }
 
 /**
- * 登录闸门：账号所属部门是否落在「所选部门 + 其下级部门」内。
+ * 登录闸门：所选部门是否落在「账号所属部门 + 其下级部门」内。
+ *
+ * 方向是「所选 ⊆ 账号」，不是反过来：
+ *   · 账号通不通过密码，本来就已确定「他是谁、属于哪个部门」；
+ *   · 登录页让他选部门，是在自己的范围内**挑选本次要看哪一块**（可下沉到下级小组），
+ *     不是让他选一个更大的部门来放大可见范围。
+ * 所以 admin（技术中心 2）可以选前端组 3，但选不了市场运营中心 8；
+ * 反过来「账号 ⊆ 所选」会让前端组的人靠选技术中心把自己升权，不能要。
  *
  * 与 buildDepartmentScope 的区别：那个算「登录后的可见范围」（超管不限），
- * 这个是「能不能登录」—— 严格按所选部门树判定，超管也要选对部门，
+ * 这个是「能不能登录」—— 按账号部门树判定，超管也要选对部门，
  * 否则等于给了一个用超管账号绕过部门选择的后门。
  * 抽成纯函数便于单测，不连库。
  */
@@ -114,8 +130,8 @@ export function isLoginDepartmentAllowed(
   selectedDepartmentId: number,
   departments: ReadonlyArray<DepartmentScopeNode>,
 ): boolean {
-  const allowed = collectDepartmentIds(departments, Number(selectedDepartmentId) || 0);
-  return allowed.includes(Number(userDepartmentId) || 0);
+  const accountSubtree = collectDepartmentIds(departments, Number(userDepartmentId) || 0);
+  return accountSubtree.includes(Number(selectedDepartmentId) || 0);
 }
 
 /** 这个账号在不在我的可见范围内（自己永远可见）。 */

@@ -30,14 +30,18 @@ import {
   ElMessageBox,
   ElOption,
   ElPagination,
+  ElRadio,
+  ElRadioGroup,
   ElSelect,
   ElSwitch,
   ElTable,
   ElTableColumn,
   ElTag,
   ElTree,
+  ElUpload,
   type FormInstance,
   type FormRules,
+  type UploadFile,
 } from 'element-plus';
 import NomiFieldTip from '../../../components/layout/NomiFieldTip.vue';
 import NomiSpinner from '../../../components/layout/NomiSpinner.vue';
@@ -49,10 +53,13 @@ import {
   addUser,
   deleteUsers,
   editUser,
+  exportUsers,
   fetchDepartments,
   fetchLogs,
   fetchRoles,
+  fetchUserImportTemplate,
   fetchUsers,
+  importUsers,
   resetUserPassword,
   setUsersStatus,
   type UserPayload,
@@ -61,9 +68,14 @@ import type {
   AdminLogItem,
   DepartmentItem,
   DepartmentNode,
+  UserImportOutcome,
+  UserImportPreview,
+  UserImportPreviewRow,
+  UserImportStrategies,
   UserItem,
 } from '../../../types/permission';
 import { formatDateTime } from '../../../utils/format';
+import { saveBase64File } from '../../../utils/download';
 
 // pageFill：内容区铺满一屏，滚动只发生在表格内部（见 NomiPageContent 与 layout.scss）。
 definePageMeta({ layout: 'admin', pageFill: true });
@@ -138,6 +150,61 @@ const passwordSubmitting = ref(false);
 const passwordTarget = ref<UserItem | null>(null);
 const passwordFormRef = ref<FormInstance>();
 const passwordForm = reactive({ password: '' });
+
+// --- 导入 / 导出 -------------------------------------------------------------
+
+/*
+ * 导入的交互顺序：上传 → 解析出预览 → 设策略 → 开始导入。
+ *
+ * 「解析」和「导入」都往服务端传同一个 File：预览里的结论只是给人看的，
+ * 真正决定写不写的是提交那一刻服务端重新解析出来的结果。
+ */
+const importVisible = ref(false);
+const importFileName = ref('');
+const importFile = ref<File | null>(null);
+const importParsing = ref(false);
+const importSubmitting = ref(false);
+const importPreview = ref<UserImportPreview | null>(null);
+const importOutcome = ref<UserImportOutcome | null>(null);
+/** 结果块在预览表下面，抽屉里通常已经滚到看不见了 —— 出结果后主动滚过去。 */
+const importResultRef = ref<HTMLElement | null>(null);
+const exporting = ref(false);
+
+const importStrategies = reactive<UserImportStrategies>({
+  onUsername: 'skip',
+  onEmail: 'skip',
+  onMobile: 'skip',
+  defaultStatus: 'enable',
+});
+
+/** 预览行的五种结论：新增 / 修改 / 跳过 / 触发停止导入 / 数据异常。 */
+type ImportAction = 'create' | 'update' | 'skip' | 'abort' | 'error';
+
+const ACTION_TAG: Record<ImportAction, { type: 'success' | 'primary' | 'info' | 'warning' | 'danger'; label: string }> = {
+  create: { type: 'success', label: 'auth.user.actionCreate' },
+  update: { type: 'primary', label: 'auth.user.actionUpdate' },
+  skip: { type: 'info', label: 'auth.user.actionSkip' },
+  abort: { type: 'warning', label: 'auth.user.actionAbort' },
+  error: { type: 'danger', label: 'auth.user.actionError' },
+};
+
+/**
+ * 预览里每行的结论：由冲突标记 + 当前策略算出来，改策略立刻跟着变。
+ * 入参收 unknown 是因为 el-table 的用户列插槽类型是 DefaultRow，出口处统一收窄。
+ */
+function rowAction(raw: unknown): ImportAction {
+  const row = raw as UserImportPreviewRow;
+  if (row.errors.length > 0) return 'error';
+  if (row.conflicts.email && importStrategies.onEmail === 'abort') return 'abort';
+  if (row.conflicts.mobile && importStrategies.onMobile === 'abort') return 'abort';
+  if (row.conflicts.email || row.conflicts.mobile) return 'skip';
+  if (row.conflicts.username) {
+    if (importStrategies.onUsername === 'update') return 'update';
+    if (importStrategies.onUsername === 'abort') return 'abort';
+    return 'skip';
+  }
+  return 'create';
+}
 
 const canBatch = computed(() => auth('del') || auth('status'));
 
@@ -677,6 +744,128 @@ async function submitReset(): Promise<void> {
   }
 }
 
+function resetImportState(): void {
+  importFileName.value = '';
+  importFile.value = null;
+  importPreview.value = null;
+  importOutcome.value = null;
+  importParsing.value = false;
+  importSubmitting.value = false;
+  Object.assign(importStrategies, {
+    onUsername: 'skip',
+    onEmail: 'skip',
+    onMobile: 'skip',
+    defaultStatus: 'enable',
+  } satisfies UserImportStrategies);
+}
+
+function openImport(): void {
+  resetImportState();
+  importVisible.value = true;
+}
+
+/**
+ * 选完文件立刻解析：先给结论，再让人决定策略。
+ *
+ * 反过来的流程（先设策略再上传）会让人对着「用户已存在怎么办」发愣 ——
+ * 他还不知道文件里到底有没有重复。
+ */
+function onImportFileChange(uploadFile: UploadFile): void {
+  const raw = uploadFile.raw;
+  if (!raw) return;
+  if (!/\.(xlsx|xls)$/i.test(raw.name)) {
+    ElMessage.error(t('auth.user.importFormat'));
+    return;
+  }
+  importFile.value = raw;
+  importFileName.value = raw.name;
+  importPreview.value = null;
+  importOutcome.value = null;
+  void parseImport();
+}
+
+async function parseImport(): Promise<void> {
+  if (!importFile.value) return;
+  importParsing.value = true;
+  try {
+    const result = await importUsers(importFile.value, 'parse', importStrategies);
+    importPreview.value = result.preview;
+    importFileName.value = result.fileName || importFileName.value;
+  } catch (error) {
+    importPreview.value = null;
+    ElMessage.error((error as Error).message);
+  } finally {
+    importParsing.value = false;
+  }
+}
+
+async function downloadImportTemplate(): Promise<void> {
+  try {
+    saveBase64File(await fetchUserImportTemplate());
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
+
+async function submitImport(): Promise<void> {
+  if (!importFile.value) return;
+  importSubmitting.value = true;
+  try {
+    const result = await importUsers(importFile.value, 'commit', importStrategies);
+    const outcome = result.outcome;
+    if (!outcome) return;
+
+    if (outcome.aborted) {
+      // 回滚过了：抽屉留着，让人把那一行改掉再重试。
+      ElMessage.error(
+        t('auth.user.importAborted', {
+          line: outcome.abortedLine,
+          reason: outcome.abortedReason,
+        }),
+      );
+      return;
+    }
+
+    importOutcome.value = outcome;
+    await load();
+    await nextTick();
+    importResultRef.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (outcome.created + outcome.updated > 0) {
+      ElMessage.success(
+        t('auth.user.importDone', {
+          created: outcome.created,
+          updated: outcome.updated,
+          skipped: outcome.skipped,
+        }),
+      );
+    }
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    importSubmitting.value = false;
+  }
+}
+
+/** 导出当前筛选结果：导出的口径与表格里看到的一致（服务端共用同一套 where）。 */
+async function doExport(): Promise<void> {
+  exporting.value = true;
+  try {
+    const file = await exportUsers({
+      keyword: keyword.value,
+      status: status.value,
+      gender: gender.value,
+      departmentId: departmentId.value,
+    });
+    saveBase64File(file);
+    ElMessage.success(t('auth.user.exportDone', { total: file.total ?? 0 }));
+    if (file.truncated) ElMessage.warning(t('auth.user.exportTruncated'));
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    exporting.value = false;
+  }
+}
+
 onMounted(() => {
   void load();
   void loadDepartments();
@@ -754,9 +943,17 @@ onMounted(() => {
             <ElButton type="primary" @click="search">{{ t('auth.action.search') }}</ElButton>
             <ElButton @click="resetFilter">{{ t('auth.action.reset') }}</ElButton>
           </div>
-          <ElButton v-if="auth('add')" class="toolbar-add" type="primary" @click="openCreate">
-            {{ t('auth.user.add') }}
-          </ElButton>
+          <div class="toolbar-tools">
+            <ElButton v-if="auth('index')" :loading="exporting" @click="doExport">
+              {{ t('auth.user.export') }}
+            </ElButton>
+            <ElButton v-if="auth('add')" @click="openImport">
+              {{ t('auth.user.import') }}
+            </ElButton>
+            <ElButton v-if="auth('add')" type="primary" @click="openCreate">
+              {{ t('auth.user.add') }}
+            </ElButton>
+          </div>
         </div>
 
         <div v-if="selection.length > 0" class="batch-bar">
@@ -1263,6 +1460,205 @@ onMounted(() => {
         </ElButton>
       </template>
     </ElDialog>
+
+    <!--
+      导入从右侧展开：这是一条「填模板 → 上传 → 看结论 → 定策略」的流水线，
+      用抽屉而不是弹窗，是因为中间那步「预览」需要的高度和宽度都超过一个对话框。
+    -->
+    <ElDrawer
+      v-model="importVisible"
+      class="nomi-import-drawer"
+      :title="t('auth.user.importTitle')"
+      :size="isMobile ? '94%' : '760px'"
+      destroy-on-close
+    >
+      <div class="import-body">
+        <div class="import-tip">
+          <p class="import-tip__text">{{ t('auth.user.importTip') }}</p>
+          <ElButton link type="primary" @click="downloadImportTemplate">
+            {{ t('auth.user.downloadTemplate') }}
+          </ElButton>
+        </div>
+
+        <section class="import-step">
+          <h3 class="import-step__title">
+            <span class="import-step__no">1</span>{{ t('auth.user.stepParse') }}
+          </h3>
+
+          <!-- 没选文件时是拖拽区；选完之后收成一行文件名，把高度让给预览表 -->
+          <ElUpload
+            v-if="!importFileName"
+            class="import-upload"
+            drag
+            action="#"
+            accept=".xls,.xlsx"
+            :auto-upload="false"
+            :show-file-list="false"
+            :on-change="onImportFileChange"
+          >
+            <div class="upload-inner">
+              <svg class="upload-icon" viewBox="0 0 48 48" aria-hidden="true">
+                <path d="M24 31V12m0 0-7.5 7.5M24 12l7.5 7.5" />
+                <path d="M9 31v4.5A4.5 4.5 0 0 0 13.5 40h21a4.5 4.5 0 0 0 4.5-4.5V31" />
+              </svg>
+              <p class="upload-text">{{ t('auth.user.uploadHint') }}</p>
+              <p class="upload-sub">{{ t('auth.user.uploadFormats') }}</p>
+            </div>
+          </ElUpload>
+
+          <div v-else v-loading="importParsing" class="import-file">
+            <span class="import-file__badge">XLS</span>
+            <span class="import-file__name" :title="importFileName">{{ importFileName }}</span>
+            <ElButton link type="primary" @click="resetImportState">
+              {{ t('auth.user.reupload') }}
+            </ElButton>
+          </div>
+        </section>
+
+        <section class="import-step">
+          <h3 class="import-step__title">
+            <span class="import-step__no">2</span>{{ t('auth.user.stepStrategy') }}
+          </h3>
+          <div class="strategy-list">
+            <div class="strategy-row">
+              <span class="strategy-label">{{ t('auth.user.strategyUsername') }}</span>
+              <ElRadioGroup v-model="importStrategies.onUsername" :disabled="Boolean(importOutcome)">
+                <ElRadio value="skip">{{ t('auth.user.strategySkip') }}</ElRadio>
+                <ElRadio value="abort">{{ t('auth.user.strategyAbort') }}</ElRadio>
+                <ElRadio value="update">{{ t('auth.user.strategyUpdate') }}</ElRadio>
+              </ElRadioGroup>
+            </div>
+            <div class="strategy-row">
+              <span class="strategy-label">{{ t('auth.user.strategyEmail') }}</span>
+              <ElRadioGroup v-model="importStrategies.onEmail" :disabled="Boolean(importOutcome)">
+                <ElRadio value="skip">{{ t('auth.user.strategySkip') }}</ElRadio>
+                <ElRadio value="abort">{{ t('auth.user.strategyAbort') }}</ElRadio>
+              </ElRadioGroup>
+            </div>
+            <div class="strategy-row">
+              <span class="strategy-label">{{ t('auth.user.strategyMobile') }}</span>
+              <ElRadioGroup v-model="importStrategies.onMobile" :disabled="Boolean(importOutcome)">
+                <ElRadio value="skip">{{ t('auth.user.strategySkip') }}</ElRadio>
+                <ElRadio value="abort">{{ t('auth.user.strategyAbort') }}</ElRadio>
+              </ElRadioGroup>
+            </div>
+            <div class="strategy-row">
+              <span class="strategy-label">{{ t('auth.user.strategyStatus') }}</span>
+              <ElRadioGroup v-model="importStrategies.defaultStatus" :disabled="Boolean(importOutcome)">
+                <ElRadio value="enable">{{ t('auth.user.enableShort') }}</ElRadio>
+                <ElRadio value="disable">{{ t('auth.user.disableShort') }}</ElRadio>
+              </ElRadioGroup>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="importPreview" class="import-step">
+          <h3 class="import-step__title">
+            {{ t('auth.user.previewTitle') }}
+            <span class="import-step__hint">{{ t('auth.user.previewHint') }}</span>
+          </h3>
+
+          <div class="import-summary">
+            <span class="summary-chip">{{ t('auth.user.summaryTotal', { total: importPreview.summary.total }) }}</span>
+            <span v-if="importPreview.summary.create" class="summary-chip is-create">
+              {{ t('auth.user.summaryCreate', { count: importPreview.summary.create }) }}
+            </span>
+            <span v-if="importPreview.summary.username" class="summary-chip is-warn">
+              {{ t('auth.user.summaryUsername', { count: importPreview.summary.username }) }}
+            </span>
+            <span v-if="importPreview.summary.email" class="summary-chip is-warn">
+              {{ t('auth.user.summaryEmail', { count: importPreview.summary.email }) }}
+            </span>
+            <span v-if="importPreview.summary.mobile" class="summary-chip is-warn">
+              {{ t('auth.user.summaryMobile', { count: importPreview.summary.mobile }) }}
+            </span>
+            <span v-if="importPreview.summary.error" class="summary-chip is-danger">
+              {{ t('auth.user.summaryError', { count: importPreview.summary.error }) }}
+            </span>
+          </div>
+
+          <ElTable :data="importPreview.rows" size="small" border max-height="300" class="import-preview">
+            <ElTableColumn :label="t('auth.user.rowNo')" width="66">
+              <template #default="{ row }">{{ row.line }}</template>
+            </ElTableColumn>
+            <ElTableColumn :label="t('auth.user.username')" min-width="150">
+              <template #default="{ row }">
+                <div class="preview-account">
+                  <span class="preview-name">{{ row.username || '—' }}</span>
+                  <span v-if="row.errors.length" class="preview-error">{{ row.errors.join('；') }}</span>
+                </div>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn :label="t('auth.user.nickname')" width="110">
+              <template #default="{ row }">{{ row.nickname || '—' }}</template>
+            </ElTableColumn>
+            <ElTableColumn v-if="!isNarrow" :label="t('auth.user.department')" width="120">
+              <template #default="{ row }">
+                <span :class="{ muted: !row.departmentName }">
+                  {{ row.departmentName || t('auth.user.departmentNone') }}
+                </span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn v-if="!isNarrow" :label="t('auth.user.roles')" min-width="130">
+              <template #default="{ row }">
+                <span :class="{ muted: !row.roleNames }">{{ row.roleNames || '—' }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn :label="t('auth.user.previewAction')" width="90" align="center">
+              <template #default="{ row }">
+                <ElTag size="small" :type="ACTION_TAG[rowAction(row)].type" effect="plain">
+                  {{ t(ACTION_TAG[rowAction(row)].label) }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+
+          <p v-if="importPreview.truncated" class="import-more">
+            {{ t('auth.user.previewMore', { count: importPreview.truncated }) }}
+          </p>
+        </section>
+
+        <!-- 导入结果：停止导入走的是回滚，这里只出现「真正写进去了」的那一次 -->
+        <div
+          v-if="importOutcome"
+          ref="importResultRef"
+          class="import-result"
+          :class="{ 'is-warn': importOutcome.failed > 0 }"
+        >
+          <p class="import-result__title">{{ t('auth.user.importResult') }}</p>
+          <p class="import-result__line">
+            {{
+              t('auth.user.importResultLine', {
+                created: importOutcome.created,
+                updated: importOutcome.updated,
+                skipped: importOutcome.skipped,
+                failed: importOutcome.failed,
+              })
+            }}
+          </p>
+          <ul v-if="importOutcome.failures.length" class="import-result__list">
+            <li v-for="item in importOutcome.failures" :key="item.line">
+              {{ t('auth.user.importFailureLine', { line: item.line, reason: item.reason }) }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <template #footer>
+        <ElButton @click="importVisible = false">
+          {{ importOutcome ? t('auth.common.close') : t('auth.common.cancel') }}
+        </ElButton>
+        <ElButton
+          v-if="!importOutcome"
+          type="primary"
+          :loading="importSubmitting"
+          :disabled="!importPreview"
+          @click="submitImport"
+        >
+          {{ t('auth.user.startImport') }}
+        </ElButton>
+      </template>
+    </ElDrawer>
   </div>
 </template>
 
@@ -1456,12 +1852,16 @@ onMounted(() => {
   gap: 6px;
 }
 
-.toolbar-search {
-  width: 220px;
+/* 右侧三个动作（导出 / 导入 / 新增）自成一组，吃掉剩余宽度贴到最右 */
+.toolbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
-.toolbar-add {
-  margin-left: auto;
+.toolbar-search {
+  width: 220px;
 }
 
 .toolbar-status,
@@ -1669,6 +2069,291 @@ onMounted(() => {
 .assign-target {
   margin: 0 0 10px;
   font-size: 13px;
+}
+
+/* --- 导入抽屉 ---------------------------------------------------------------
+ * 三段式：提示条 / 步骤 1 上传 / 步骤 2 策略（+ 预览结论）。
+ * 抽屉内部自己滚，底部按钮固定 —— 预览表一长，按钮不该被推出屏幕。
+ */
+.nomi-import-drawer :deep(.el-drawer__header) {
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--nomi-border);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.nomi-import-drawer :deep(.el-drawer__body) {
+  padding: 16px 20px;
+}
+
+.nomi-import-drawer :deep(.el-drawer__footer) {
+  padding: 12px 20px;
+  border-top: 1px solid var(--nomi-border);
+}
+
+.import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.import-tip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  border-radius: 8px;
+}
+
+.import-tip__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.import-step__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.import-step__no {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  background: var(--el-color-primary);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.import-step__hint {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.import-upload {
+  display: block;
+}
+
+.import-upload :deep(.el-upload) {
+  display: block;
+  width: 100%;
+}
+
+.import-upload :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 20px 16px;
+  background: var(--nomi-card);
+  border: 1px dashed var(--nomi-border);
+  border-radius: 10px;
+  transition: border-color 0.15s var(--ease, ease);
+}
+
+.import-upload :deep(.el-upload-dragger:hover) {
+  border-color: var(--el-color-primary);
+}
+
+.upload-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.upload-icon {
+  width: 34px;
+  height: 34px;
+  fill: none;
+  stroke: var(--el-color-primary);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.upload-text {
+  margin: 4px 0 0;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.upload-sub {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.import-file {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--nomi-card);
+  border: 1px solid var(--nomi-border);
+  border-radius: 10px;
+}
+
+.import-file__badge {
+  padding: 3px 6px;
+  background: var(--nomi-hover);
+  border-radius: 4px;
+  color: var(--el-color-success);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.import-file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.strategy-row {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 12px;
+}
+
+.strategy-label {
+  width: 84px;
+  flex: 0 0 84px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* Element 默认给相邻 radio 30px 间距，四行叠起来会显得松垮 */
+.strategy-row :deep(.el-radio) {
+  margin-right: 16px;
+}
+
+.import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.summary-chip {
+  padding: 3px 9px;
+  background: var(--nomi-hover);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.summary-chip.is-create {
+  background: color-mix(in srgb, var(--el-color-success) 14%, transparent);
+  color: var(--el-color-success);
+}
+
+.summary-chip.is-warn {
+  background: color-mix(in srgb, var(--el-color-warning) 16%, transparent);
+  color: var(--el-color-warning);
+}
+
+.summary-chip.is-danger {
+  background: color-mix(in srgb, var(--el-color-danger) 14%, transparent);
+  color: var(--el-color-danger);
+}
+
+.preview-account {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview-name {
+  font-weight: 550;
+}
+
+.preview-error {
+  color: var(--el-color-danger);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.import-more {
+  margin: 8px 0 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.import-result {
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--el-color-success) 10%, transparent);
+  border-radius: 8px;
+}
+
+.import-result.is-warn {
+  background: color-mix(in srgb, var(--el-color-warning) 12%, transparent);
+}
+
+.import-result__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.import-result__line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.import-result__list {
+  max-height: 140px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  overflow: auto;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .toolbar-tools {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .toolbar-tools .el-button {
+    flex: 1;
+  }
+
+  .strategy-row {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .strategy-label {
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 </style>
 

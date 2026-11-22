@@ -243,16 +243,28 @@ export async function assertUsersInScope(
   }
 }
 
-export async function listUsers(
+export interface UserListConditions {
+  where: string[];
+  params: unknown[];
+  scope: DepartmentScope;
+  departments: Array<{ id: number; pid: number; name: string }>;
+}
+
+/**
+ * 列表的 where 条件。
+ *
+ * 抽出来是因为「导出」和「列表」必须共用同一套口径 —— 导出的行一旦不是
+ * 屏幕上看到的那一批，用户第一反应就是数据错了，而排查这种问题最费时间。
+ */
+export async function buildUserListConditions(
   context: AdminContext,
   query: UserListQuery,
-): Promise<UserListResult> {
+): Promise<UserListConditions> {
   const where: string[] = [];
   const params: unknown[] = [];
 
   const scope = await resolveDepartmentScope(context);
   const departments = await listDepartmentNodes();
-  const departmentNames = new Map(departments.map((dept) => [dept.id, dept.name]));
 
   // 1) 数据范围永远先落地：前端不传 departmentId 也照样只能看到自己那棵树。
   const visible = userScopeCondition(scope);
@@ -297,6 +309,16 @@ export async function listUsers(
     where.push('(`username` LIKE ? OR `nickname` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)');
     params.push(like, like, like, like);
   }
+
+  return { where, params, scope, departments };
+}
+
+export async function listUsers(
+  context: AdminContext,
+  query: UserListQuery,
+): Promise<UserListResult> {
+  const { where, params, scope, departments } = await buildUserListConditions(context, query);
+  const departmentNames = new Map(departments.map((dept) => [dept.id, dept.name]));
 
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const pool = getPool();
@@ -345,6 +367,116 @@ export async function listUsers(
     page: query.page,
     limit: query.limit,
   };
+}
+
+/** 导出上限：超过这个量级就不该用「导出当前筛选」了，请先缩小范围。 */
+export const MAX_EXPORT_ROWS = 5000;
+
+export interface UserExportRow {
+  username: string;
+  nickname: string;
+  email: string;
+  mobile: string;
+  gender: Gender;
+  departmentName: string;
+  roleNames: string;
+  status: string;
+  createTime: number;
+  lastLoginTime: number;
+  lastLoginIp: string;
+}
+
+/**
+ * 导出：与列表同一套筛选条件，但不分页。
+ *
+ * 多取一行用来判断「是不是被截断了」：调用方需要如实告诉用户
+ * 「只导出了前 5000 条」，而不是悄悄少一半。
+ */
+export async function listUsersForExport(
+  context: AdminContext,
+  query: UserListQuery,
+): Promise<{ rows: UserExportRow[]; total: number; truncated: boolean }> {
+  const { where, params, departments } = await buildUserListConditions(context, query);
+  const departmentNames = new Map(departments.map((dept) => [dept.id, dept.name]));
+  const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const pool = getPool();
+
+  const [[countRows], [rawRows]] = await Promise.all([
+    pool.query<Array<{ total: number } & RowDataPacket>>(
+      `SELECT COUNT(*) AS total FROM \`user\` ${clause}`,
+      params,
+    ),
+    pool.query<UserDbRow[]>(
+      `SELECT \`id\`,\`username\`,\`department_id\`,\`nickname\`,\`avatar\`,\`email\`,\`mobile\`,\`motto\`,\`gender\`,\`status\`,
+              \`login_failure\`,\`last_login_time\`,\`last_login_ip\`,\`create_time\`
+         FROM \`user\` ${clause}
+        ORDER BY \`id\` ASC
+        LIMIT ?`,
+      [...params, MAX_EXPORT_ROWS + 1],
+    ),
+  ]);
+
+  const truncated = rawRows.length > MAX_EXPORT_ROWS;
+  const rows = truncated ? rawRows.slice(0, MAX_EXPORT_ROWS) : rawRows;
+  const accessMap = await loadAccessMap(rows.map((row) => row.id));
+
+  return {
+    rows: rows.map((row) => ({
+      username: row.username,
+      nickname: row.nickname,
+      email: row.email,
+      mobile: row.mobile,
+      gender: normalizeGender(row.gender),
+      departmentName: departmentNames.get(Number(row.department_id ?? 0)) ?? '',
+      roleNames: (accessMap.get(row.id) ?? []).map((item) => item.name).join('、'),
+      status: row.status,
+      createTime: Number(row.create_time ?? 0),
+      lastLoginTime: Number(row.last_login_time ?? 0),
+      lastLoginIp: row.last_login_ip,
+    })),
+    total: Number(countRows[0]?.total ?? 0),
+    truncated,
+  };
+}
+
+export interface ImportUserGuard {
+  departmentId: number;
+  visible: boolean;
+  operable: boolean;
+  self: boolean;
+}
+
+/**
+ * 导入时的「已有账号能不能改」。和单条编辑用同一组判据
+ * （部门范围 + 权限不低于自己），区别只是**不抛错** ——
+ * 导入需要的是「这一行有问题」，而不是让整批请求失败。
+ */
+export async function inspectUsersForImport(
+  context: AdminContext,
+  ids: readonly number[],
+): Promise<Map<number, ImportUserGuard>> {
+  const map = new Map<number, ImportUserGuard>();
+  if (ids.length === 0) return map;
+
+  const pool = getPool();
+  const [rows] = await pool.query<Array<{ id: number; department_id: number } & RowDataPacket>>(
+    'SELECT `id`,`department_id` FROM `user` WHERE `id` IN (?)',
+    [ids],
+  );
+  const scope = await resolveDepartmentScope(context);
+  const accessMap = await loadAccessMap(ids);
+
+  for (const row of rows) {
+    const id = Number(row.id);
+    const departmentId = Number(row.department_id ?? 0);
+    map.set(id, {
+      departmentId,
+      visible: isUserVisible(scope, { id, departmentId }),
+      operable: canOperateAccount(context, accessMap.get(id) ?? []),
+      self: id === context.admin.id,
+    });
+  }
+  return map;
 }
 
 export interface UserPayload {

@@ -52,6 +52,8 @@ export interface SessionMeta {
   browser?: string;
   os?: string;
   useragent?: string;
+  /** 登录所选部门，作为本次会话的数据范围根；续期时沿用 */
+  scopeDepartmentId?: number;
 }
 
 export interface TokenRecord extends RowDataPacket {
@@ -68,6 +70,8 @@ export interface TokenRecord extends RowDataPacket {
   browser: string;
   os: string;
   useragent: string;
+  /** 登录所选部门，作为本次会话的数据范围根；0 = 按账号所属部门 */
+  scope_department_id: number;
 }
 
 export function nowSeconds(): number {
@@ -97,8 +101,8 @@ async function insertToken(
   await pool.query(
     `INSERT INTO \`token\`
       (\`token\`,\`type\`,\`user_id\`,\`session_id\`,\`create_time\`,\`expire_time\`,
-       \`last_active_time\`,\`last_refresh_time\`,\`ip\`,\`ip_location\`,\`browser\`,\`os\`,\`useragent\`)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       \`last_active_time\`,\`last_refresh_time\`,\`ip\`,\`ip_location\`,\`browser\`,\`os\`,\`useragent\`,\`scope_department_id\`)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       digestToken(token),
       type,
@@ -113,6 +117,7 @@ async function insertToken(
       meta.browser ?? '',
       meta.os ?? '',
       meta.useragent ?? '',
+      Number(meta.scopeDepartmentId) || 0,
     ],
   );
   return expire;
@@ -250,6 +255,7 @@ export async function rotateByRefreshToken(refreshToken: string): Promise<Rotate
     browser: record.browser,
     os: record.os,
     useragent: record.useragent,
+    scopeDepartmentId: Number(record.scope_department_id) || 0,
   });
   await deleteToken(refreshToken, TOKEN_TYPE_ADMIN_REFRESH).catch(() => undefined);
   return { tokens, userId: record.user_id };

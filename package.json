@@ -36,7 +36,8 @@
     "element-plus": "^2.14.8",
     "mysql2": "^3.24.6",
     "nuxt": "^4.6.1",
-    "pinia": "^4.1.0"
+    "pinia": "^4.1.0",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@element-plus/nuxt": "^1.1.5",
