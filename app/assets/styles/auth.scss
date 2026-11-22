@@ -69,6 +69,33 @@
   justify-content: safe center;
 }
 
+// 不支持 safe center 的浏览器退回首尾 auto margin：有富余空间时均分居中，
+// 内容超出时 auto margin 自动归零退回顶部，同样不会出现顶被裁掉却滚不回来的情况。
+@supports not (justify-content: safe center) {
+  .auth-form--register > .auth-title {
+    margin-top: auto;
+  }
+
+  .auth-form--register > .nomi-register-form {
+    margin-bottom: auto;
+  }
+}
+
+// 注册页未就绪 / 注册未开放时只有一小块提示：与表单态一样整块居中，
+// 否则内容贴顶、下方留一大片空白，和登录页调整前的观感一致。
+.auth-form--state {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+}
+
+@supports not (justify-content: safe center) {
+  .auth-form--state > * {
+    margin-top: auto;
+    margin-bottom: auto;
+  }
+}
+
 .auth-title {
   margin: 0;
   font-size: 36px;
@@ -314,6 +341,21 @@
   overflow: hidden auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border, #e2e8f0) transparent;
+}
+
+// 与登录 / 注册页一致：内容整块垂直居中。外壳可滚动（overflow:hidden auto），
+// 用 safe center 保证内容超高时退回顶部对齐，不会把标题顶出可视区又滚不回来。
+.auth-form--forget {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+}
+
+@supports not (justify-content: safe center) {
+  .auth-form--forget > .nomi-forget {
+    margin-top: auto;
+    margin-bottom: auto;
+  }
 }
 
 .auth-form--forget .el-form {

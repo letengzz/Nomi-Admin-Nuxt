@@ -24,6 +24,7 @@ import {
 } from 'element-plus';
 import NomiIcon from '../layout/NomiIcon.vue';
 import { fetchResetPassword, fetchSendResetCode, getErrorMessage } from '../../services/auth';
+import { isDemoMode } from '../../utils/api';
 import {
   CODE_LENGTH,
   COUNTDOWN_SECONDS,
@@ -39,6 +40,8 @@ import {
 
 const { t, locale } = useI18n();
 const localePath = useLocalePath();
+/** 与登录页一致：「演示环境可用哪些账号」只在 GitHub Pages 静态站展示。 */
+const isDemo = isDemoMode();
 
 const formRef = ref<FormInstance>();
 const draft = reactive<ForgetPasswordDraft>(createEmptyForgetDraft());
@@ -340,6 +343,7 @@ function handleBack(): void {
       </NuxtLink>
     </div>
 
-    <p class="nomi-forget-hint">{{ t('forgetPassword.hint') }}</p>
+    <!-- 演示账号说明只在演示站出现：真实部署里 super/admin/user 不是公开演示凭据。 -->
+    <p v-if="isDemo" class="nomi-forget-hint">{{ t('forgetPassword.hint') }}</p>
   </div>
 </template>

@@ -41,12 +41,16 @@ useHead({ title: computed(() => t('register.pageTitle')) });
       <NomiAuthTopBar />
 
       <div class="auth-wrap auth-wrap--register">
-        <div v-if="!ready" class="register-state">{{ t('app.loading') }}</div>
+        <div v-if="!ready" class="auth-form auth-form--state">
+          <div class="register-state">{{ t('app.loading') }}</div>
+        </div>
 
-        <div v-else-if="!registrationEnabled" class="register-state register-state--closed">
-          <h2>{{ t('register.closedTitle') }}</h2>
-          <p>{{ t('register.closedDescription') }}</p>
-          <ElButton type="primary" @click="toLogin">{{ t('register.backToLogin') }}</ElButton>
+        <div v-else-if="!registrationEnabled" class="auth-form auth-form--state">
+          <div class="register-state register-state--closed">
+            <h2>{{ t('register.closedTitle') }}</h2>
+            <p>{{ t('register.closedDescription') }}</p>
+            <ElButton type="primary" @click="toLogin">{{ t('register.backToLogin') }}</ElButton>
+          </div>
         </div>
 
         <div v-else class="auth-form auth-form--register">

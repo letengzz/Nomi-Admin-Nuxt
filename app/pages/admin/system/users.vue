@@ -1154,7 +1154,7 @@ onMounted(() => {
       :title="dialogTitle"
       class="nomi-user-dialog"
       width="720px"
-      top="6vh"
+      align-center
       destroy-on-close
     >
       <!-- 两列栅格：字段多，单列会被迫滚动；这里一屏放完，窄屏自动退化成一列 -->
