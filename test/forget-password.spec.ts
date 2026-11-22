@@ -19,7 +19,7 @@ import {
   validateForgetField,
   type ForgetPasswordDraft,
 } from '../app/utils/forget-password';
-import { PASSWORD_MIN_LENGTH as REGISTER_PASSWORD_MIN } from '../app/utils/register';
+import { STRONG_PASSWORD_MIN_LENGTH } from '../server/utils/auth/password';
 import { fetchResetPassword, fetchSendResetCode } from '../app/services/auth';
 import {
   clearResetCodes,
@@ -32,13 +32,8 @@ import {
   RESET_CODE_TTL_MS,
   verifyResetCode,
   consumeResetCode,
+  discardResetCode,
 } from '../server/utils/reset-codes';
-import {
-  DEMO_ACCOUNTS,
-  hasUser,
-  resolvePassword,
-  updatePassword,
-} from '../server/utils/registered-users';
 
 const draft = (overrides: Partial<ForgetPasswordDraft> = {}): ForgetPasswordDraft => ({
   ...createEmptyForgetDraft(),
@@ -79,18 +74,32 @@ describe('校验矩阵', () => {
     );
   });
 
-  it('账号长度边界与注册页同一组常量', () => {
+  it('账号长度边界与服务端同一组常量', () => {
     expect(ACCOUNT_MIN_LENGTH).toBe(3);
     const short = validateForgetField('account', draft({ account: 'ab' }));
     expect(short?.key).toBe('forgetPassword.rule.accountLength');
     expect(short?.params).toEqual({ min: ACCOUNT_MIN_LENGTH, max: ACCOUNT_MAX_LENGTH });
 
-    expect(
-      validateForgetField('account', draft({ account: 'a'.repeat(ACCOUNT_MAX_LENGTH) })),
-    ).toBeNull();
+    // 上限按邮箱长度放宽到 100（对齐 user.email 的 varchar(100)）
+    expect(ACCOUNT_MAX_LENGTH).toBe(100);
+    const longEmail = `${'a'.repeat(ACCOUNT_MAX_LENGTH - '@nomi.dev'.length)}@nomi.dev`;
+    expect(longEmail).toHaveLength(ACCOUNT_MAX_LENGTH);
+    expect(validateForgetField('account', draft({ account: longEmail }))).toBeNull();
     expect(
       validateForgetField('account', draft({ account: 'a'.repeat(ACCOUNT_MAX_LENGTH + 1) })),
     ).not.toBeNull();
+  });
+
+  it('账号可以是登录名，也可以是绑定邮箱', () => {
+    expect(validateForgetField('account', draft({ account: 'super' }))).toBeNull();
+    expect(validateForgetField('account', draft({ account: '2020885569@qq.com' }))).toBeNull();
+    // 既不是合法登录名、也不是合法邮箱：给出明确文案，而不是含糊的「长度不对」
+    expect(validateForgetField('account', draft({ account: 'a'.repeat(30) }))?.key).toBe(
+      'forgetPassword.rule.accountFormat',
+    );
+    expect(validateForgetField('account', draft({ account: 'not an email' }))?.key).toBe(
+      'forgetPassword.rule.accountFormat',
+    );
   });
 
   it('账号两端的空白不影响校验', () => {
@@ -110,12 +119,21 @@ describe('校验矩阵', () => {
     expect(normalizeCode(' 12 3 456 ')).toBe('123456');
   });
 
-  it('新密码长度与注册页共用 6 位底线', () => {
-    expect(FORGET_PASSWORD_MIN_LENGTH).toBe(REGISTER_PASSWORD_MIN);
-    expect(validateForgetField('newPassword', draft({ newPassword: '12345' }))?.key).toBe(
-      'forgetPassword.rule.passwordLength',
-    );
-    expect(validateForgetField('newPassword', draft({ newPassword: '123456' }))).toBeNull();
+  it('新密码底线与「个人中心改密」的强策略一致，不再沿用注册页的 6 位', () => {
+    expect(FORGET_PASSWORD_MIN_LENGTH).toBe(STRONG_PASSWORD_MIN_LENGTH);
+    expect(
+      validateForgetField('newPassword', draft({ newPassword: 'Abc123!@#' }))?.key,
+    ).toBe('forgetPassword.rule.passwordLength');
+    expect(validateForgetField('newPassword', draft({ newPassword: 'Abc123!@#x' }))).toBeNull();
+  });
+
+  it('字符类别不足三类时拦下', () => {
+    // 12 位纯小写：长度够，但只有一类字符
+    expect(
+      validateForgetField('newPassword', draft({ newPassword: 'abcdefghijkl' }))?.key,
+    ).toBe('forgetPassword.rule.passwordWeak');
+    // 三类即可（这里是小写 + 数字 + 符号）
+    expect(validateForgetField('newPassword', draft({ newPassword: 'abcdefgh12!@' }))).toBeNull();
   });
 
   it('确认密码与主密码联动', () => {
@@ -168,6 +186,13 @@ describe('国际化', () => {
     for (const key of zhKeys) {
       const path = `forgetPassword.${key}`;
       expect(placeholders(en, path).sort(), path).toEqual(placeholders(zh, path).sort());
+    }
+  });
+
+  it('账号未找到 / 邮箱未绑定 / 邮箱未匹配用户三种提示在两种语言里都存在', () => {
+    for (const key of ['accountNotFound', 'emailNotFound', 'emailNotBound']) {
+      expect(typeof lookup(zh, `forgetPassword.${key}`), `zh.${key}`).toBe('string');
+      expect(typeof lookup(en, `forgetPassword.${key}`), `en.${key}`).toBe('string');
     }
   });
 
@@ -259,25 +284,10 @@ describe('验证码状态机', () => {
     expect(getResendCooldownLeft(account, now + RESET_CODE_COOLDOWN_MS)).toBe(0);
     expect(getResendCooldownLeft('nobody', now)).toBe(0);
   });
-});
-
-describe('服务端账号表', () => {
-  beforeEach(() => {
-    DEMO_ACCOUNTS.super = '123456';
-  });
-
-  it('hasUser 能认出演示账号', () => {
-    expect(hasUser('super')).toBe(true);
-    expect(hasUser('不存在的人')).toBe(false);
-  });
-
-  it('updatePassword 改的是登录时真正读取的那份密码', () => {
-    updatePassword('super', 'brand-new-pwd');
-    expect(resolvePassword('super')).toBe('brand-new-pwd');
-  });
-
-  it('给不存在的账号改密码会抛错，而不是静默创建', () => {
-    expect(() => updatePassword('不存在的人', 'x')).toThrow();
+  it('作废后立即失效（发信失败时用）', () => {
+    const state = issueResetCode(account, now);
+    discardResetCode(account);
+    expect(verifyResetCode(account, state.code, now)).toBe('missing');
   });
 });
 
@@ -287,12 +297,23 @@ describe('接口封装', () => {
   const okRequest = (data: unknown): ResetCodeRequest =>
     (async () => ({ code: 200, msg: 'ok', data })) as unknown as ResetCodeRequest;
 
-  it('fetchSendResetCode 剥掉响应外壳，并保留 devCode', async () => {
+  it('fetchSendResetCode 剥掉响应外壳，只保留投递去向（响应里没有验证码）', async () => {
     const result = await fetchSendResetCode(
       { account: 'super' },
-      okRequest({ expiresIn: 300, cooldown: 60, devCode: '123456' }),
+      okRequest({ expiresIn: 300, cooldown: 60, delivery: 'email' }),
     );
-    expect(result).toEqual({ expiresIn: 300, cooldown: 60, devCode: '123456' });
+    expect(result).toEqual({ expiresIn: 300, cooldown: 60, delivery: 'email' });
+    // 兜底：万一服务端将来又把码塞回来，前端也不该把它读出来
+    const leaked = await fetchSendResetCode(
+      { account: 'super' },
+      okRequest({ expiresIn: 300, cooldown: 60, delivery: 'email', code: '123456' }),
+    );
+    expect(leaked).not.toHaveProperty('code');
+  });
+
+  it('未知的 delivery 值按 email 处理（宁可不显示提示，也不暴露内部状态）', async () => {
+    const result = await fetchSendResetCode({ account: 'super' }, okRequest({ delivery: 'sms' }));
+    expect(result.delivery).toBe('email');
   });
 
   it('fetchSendResetCode 对缺字段的响应给兜底值', async () => {

@@ -27,6 +27,12 @@ export const BusinessCode = {
    * （Precondition Required）：请求本身合法，只是还缺一个前提动作。
    */
   NEED_PASSWORD_CHANGE: 428,
+  /** 找回密码：登录名不存在 */
+  ACCOUNT_NOT_FOUND: 404,
+  /** 找回密码：输入的邮箱没有绑定任何用户 */
+  EMAIL_NOT_FOUND: 441,
+  /** 找回密码：账号存在但没有绑定邮箱，投不出去 */
+  EMAIL_NOT_BOUND: 440,
 } as const;
 
 export type BusinessCodeValue = (typeof BusinessCode)[keyof typeof BusinessCode];

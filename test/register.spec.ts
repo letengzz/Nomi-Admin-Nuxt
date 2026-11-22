@@ -1,5 +1,5 @@
 /**
- * 注册页支撑层单测：校验矩阵、常量一致性、中英文案 key 对齐、Nitro 演示账号表、API 封装。
+ * 注册页支撑层单测：校验矩阵、常量一致性、中英文案 key 对齐、API 封装。
  * 全部是纯函数与 JSON，跑在 happy-dom 环境里，不需要拉起 Nuxt 运行时。
  */
 import { readFileSync } from 'node:fs';
@@ -21,12 +21,6 @@ import {
   type RegisterDraft,
 } from '../app/utils/register';
 import { fetchRegister, getErrorMessage } from '../app/services/auth';
-import {
-  DEMO_ACCOUNTS,
-  isUserNameTaken,
-  resolvePassword,
-  saveRegisteredUser,
-} from '../server/utils/registered-users';
 
 const draft = (overrides: Partial<RegisterDraft> = {}): RegisterDraft => ({
   ...createEmptyDraft(),
@@ -185,31 +179,6 @@ describe('中英注册文案', () => {
     expect((en.login as Record<string, unknown>).register).toBeTruthy();
     expect((zh.register as Record<string, unknown>).toLogin).toBeTruthy();
     expect((en.register as Record<string, unknown>).toLogin).toBeTruthy();
-  });
-});
-
-describe('Nitro 演示账号表', () => {
-  it('内置三个演示账号都能解析凭证', () => {
-    for (const name of Object.keys(DEMO_ACCOUNTS)) {
-      expect(resolvePassword(name)).toBe('123456');
-      expect(isUserNameTaken(name)).toBe(true);
-    }
-  });
-
-  it('新注册账号写入后可登录、且被判为重名', () => {
-    saveRegisteredUser({
-      userName: 'spec-user',
-      password: 'secret123',
-      policyVersion: POLICY_VERSION,
-      agreedAt: '2026-11-13T00:00:00.000Z',
-    });
-    expect(resolvePassword('spec-user')).toBe('secret123');
-    expect(isUserNameTaken('spec-user')).toBe(true);
-  });
-
-  it('未知账号返回 undefined', () => {
-    expect(resolvePassword('nobody-here')).toBeUndefined();
-    expect(isUserNameTaken('nobody-here')).toBe(false);
   });
 });
 

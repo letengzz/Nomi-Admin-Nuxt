@@ -150,6 +150,19 @@ export async function uploadSiteImage(kind: 'logo' | 'favicon', file: File): Pro
   return result.url;
 }
 
+/**
+ * 用**已保存**的邮件配置发一封自检邮件。
+ *
+ * 只传收件人：SMTP 参数一律由服务端从库里读，避免这个接口变成
+ * 「用任意服务器发任意邮件」的代理。改完配置记得先保存再点测试。
+ */
+export function sendTestMail(to: string): Promise<{ to: string }> {
+  return apiFetch<{ to: string }>('/api/admin/settings/test-email', {
+    method: 'POST',
+    body: { to },
+  });
+}
+
 export async function fetchLoginConfig(): Promise<LoginConfig> {
   try {
     const response = await callApi<LoginConfig>('/api/auth/login-config');

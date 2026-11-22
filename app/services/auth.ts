@@ -45,8 +45,33 @@ export interface SendResetCodeResult {
   expiresIn: number;
   /** 重发冷却（秒），与服务端节流保持一致 */
   cooldown: number;
-  /** 仅 dev 环境返回：演示站点没有邮件网关，直接把码交给前端展示 */
-  devCode?: string;
+  /**
+   * 验证码去了哪里。
+   * `email` = 已投递到账号绑定的邮箱；`console` = 开发环境打印在服务端控制台。
+   *
+   * **注意这里没有、也不该有 `code` 字段**：验证码只能经由投递通道离开服务端。
+   * 曾经的 `devCode` 是 CRIT-02 的成因 —— 任何人都能因此重置任意账号的密码。
+   */
+  delivery: 'email' | 'console';
+}
+
+/**
+ * 认证类接口的业务错误。
+ *
+ * 带上服务端业务码，组件才能把「请求过于频繁 / 未配置邮件服务 / 验证码不对」
+ * 翻成当前语言，而不是把服务端的中文原样丢给英文界面。
+ */
+export class AuthRequestError extends Error {
+  readonly code: number;
+  /** 与 FetchError 的 `data` 形状对齐，兼容既有的 `error.data.code` 读法 */
+  readonly data: { code: number; msg: string };
+
+  constructor(message: string, code = 0) {
+    super(message);
+    this.name = 'AuthRequestError';
+    this.code = code;
+    this.data = { code, msg: message };
+  }
 }
 
 /** 校验验证码 + 重置密码。 */
@@ -99,12 +124,12 @@ export async function fetchSendResetCode(
     body: payload,
     request,
   });
-  if (res.code !== 200) throw new Error(res.msg || '验证码发送失败');
+  if (res.code !== 200) throw new AuthRequestError(res.msg || '验证码发送失败', res.code);
   // expiresIn / cooldown 缺失时给兜底值：前端只拿它们做提示，不该因此整个流程断掉。
   return {
     expiresIn: res.data?.expiresIn ?? 300,
     cooldown: res.data?.cooldown ?? 60,
-    devCode: res.data?.devCode,
+    delivery: res.data?.delivery === 'console' ? 'console' : 'email',
   };
 }
 
@@ -118,7 +143,9 @@ export async function fetchResetPassword(
     body: payload,
     request,
   });
-  if (res.code !== 200 || !res.data?.userName) throw new Error(res.msg || '密码重置失败');
+  if (res.code !== 200 || !res.data?.userName) {
+    throw new AuthRequestError(res.msg || '密码重置失败', res.code);
+  }
   return res.data;
 }
 

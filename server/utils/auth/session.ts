@@ -95,6 +95,63 @@ export async function findAdminByUsername(username: string): Promise<AdminRow | 
 }
 
 /**
+ * 按「登录名**或**绑定邮箱」找账号。只给找回密码用。
+ *
+ * 用户记不住登录名时，能想起的往往就是自己的邮箱；旧版只拿输入值去匹配 `username`，
+ * 填邮箱就永远匹配不到 —— 而接口为了防枚举必须返回「已发送」，于是表现为
+ * 「填了邮箱、页面说发出去了、邮箱里什么都没有」。这类静默失败比报错更难查。
+ *
+ * 两处必须同时用它：取验证码和提交新密码。只在第一处支持邮箱的话，
+ * 用户拿邮箱走到第二步会被判「验证码不存在」，看起来像码过期了。
+ *
+ * `username = ?` 排在前：同一串字符既是某人登录名、又是另一人邮箱时，
+ * 以登录名为准（邮箱不作登录凭据，不能被用来抢账号）。
+ * 邮箱比较走 `LOWER()`，避免大小写差异导致「明明绑了却说没有」。
+ */
+export async function findAdminByAccount(account: string): Promise<AdminRow | undefined> {
+  const pool = getPool();
+  const [rows] = await pool.query<AdminRow[]>(
+    'SELECT * FROM `user` WHERE `username` = ? OR (`email` <> \'\' AND LOWER(`email`) = LOWER(?)) ORDER BY (`username` = ?) DESC LIMIT 1',
+    [account, account, account],
+  );
+  return rows[0];
+}
+
+/**
+ * 登录标识的查询条件：登录名 / 手机号 / 邮箱三选一。
+ *
+ * 抽成纯函数是为了让「谁优先」这件事可以单测：
+ *   · 登录名最优先 —— 若 A 的邮箱恰好等于 B 的登录名，不能被邮箱抢走 B 的账号；
+ *   · 手机号其次；
+ *   · 邮箱大小写不敏感，`LOWER()` 与找回密码那条路径保持一致。
+ * 三者都不匹配时返回空，由调用方统一回「账号或密码错误」。
+ */
+export function buildLoginLookup(identifier: string): {
+  where: string;
+  params: string[];
+  order: string;
+} {
+  const value = identifier.trim();
+  return {
+    where:
+      '(`username` = ? OR `mobile` = ? OR (`email` <> \'\' AND LOWER(`email`) = LOWER(?)))',
+    params: [value, value, value],
+    order: 'ORDER BY (`username` = ?) DESC, (`mobile` = ?) DESC, `id` ASC',
+  };
+}
+
+/** 按「登录名 / 手机号 / 邮箱」找账号。只给登录用，找回密码继续用 findAdminByAccount。 */
+export async function findAdminByLogin(identifier: string): Promise<AdminRow | undefined> {
+  const lookup = buildLoginLookup(identifier);
+  const pool = getPool();
+  const [rows] = await pool.query<AdminRow[]>(
+    `SELECT * FROM \`user\` WHERE ${lookup.where} ${lookup.order} LIMIT 1`,
+    [...lookup.params, lookup.params[0], lookup.params[0]],
+  );
+  return rows[0];
+}
+
+/**
  * 从请求里恢复登录态。
  *
  * ★ 409 的关键顺序：**先查记录再判过期**。过期记录被立即删除的话，这里只能
@@ -139,6 +196,9 @@ function clientIp(event: H3Event): string {
 /**
  * 账号密码登录。
  *
+ * `username` 参数实际是「登录标识」：登录名 / 手机号 / 邮箱都可以（findAdminByLogin）。
+ * 日志里仍记用户输入的原文，便于排查「他到底拿什么登进来的」。
+ *
  * 与文档 4.6.4 一致的三道闸：账号存在 → 未锁定 → 密码正确（且状态启用）。
  * 失败信息统一成「账号或密码错误」，不区分「账号不存在」——减少账号枚举面。
  *
@@ -172,7 +232,7 @@ export async function loginAdmin(
       meta,
     });
 
-  const admin = await findAdminByUsername(username);
+  const admin = await findAdminByLogin(username);
   if (!admin) {
     await writeLog('failed', false, '账号或密码错误');
     return { ok: false, code: 0, msg: '账号或密码错误' };

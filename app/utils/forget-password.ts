@@ -7,17 +7,53 @@
  *   ③ 账号长度直接复用注册页的常量，服务端也用同一组数值，
  *      不会出现「前端放行、后端拒绝」（docs/忘记密码页设计.md 18.5）。
  */
-import { USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH } from './register';
+import { USERNAME_MIN_LENGTH } from './register';
 
 /** 账号长度边界：与注册页 / 登录页同一个字段，复用同一组常量。 */
 export const ACCOUNT_MIN_LENGTH = USERNAME_MIN_LENGTH;
-export const ACCOUNT_MAX_LENGTH = USERNAME_MAX_LENGTH;
+
+/**
+ * 上限单独放宽到 100，与 `user.email` 的 `varchar(100)` 对齐。
+ *
+ * 找回密码允许填「用户名或绑定邮箱」：用户记不住登录名时，能想起来的通常是邮箱。
+ * 若沿用注册页的 20 位上限，`2020885569@qq.com` 这种 18 位邮箱勉强能过，
+ * 稍长一点的地址会在前端就被拦下 —— 而界面上根本没解释为什么。
+ */
+export const ACCOUNT_MAX_LENGTH = 100;
+
+/** 与 server/api/auth/password-code.post.ts 同一口径：登录名或邮箱。 */
+const ACCOUNT_USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,20}$/;
+const ACCOUNT_EMAIL_PATTERN = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+
+/** 输入既不是合法登录名、也不是合法邮箱。 */
+export function isForgetAccountFormat(value: string): boolean {
+  const trimmed = value.trim();
+  return ACCOUNT_USERNAME_PATTERN.test(trimmed) || ACCOUNT_EMAIL_PATTERN.test(trimmed);
+}
 
 /** 验证码位数。服务端 server/utils/reset-codes.ts 用同一数值生成。 */
 export const CODE_LENGTH = 6;
 
-/** 新密码最短长度，与注册页保持一致。 */
-export const FORGET_PASSWORD_MIN_LENGTH = 6;
+/**
+ * 新密码最短长度。
+ *
+ * **不再跟注册页的 6 位看齐**：找回密码是攻击者最想走的那条路径，如果这里比
+ * 「个人中心改密」宽松，强口令策略就形同虚设 —— 把管理员密码重置成 6 位照样能登录。
+ * 数值与 server/utils/auth/password.ts 的 STRONG_PASSWORD_MIN_LENGTH 一致，
+ * 由 test/forget-password.spec.ts 断言同步。
+ */
+export const FORGET_PASSWORD_MIN_LENGTH = 10;
+
+/** 必须覆盖的字符类别数：小写 / 大写 / 数字 / 符号，四选三。 */
+export const PASSWORD_CLASS_MIN = 3;
+
+/** 四类字符的匹配规则，与服务端 PASSWORD_CLASS_PATTERNS 同一口径。 */
+const PASSWORD_CLASS_PATTERNS = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/] as const;
+
+/** 命中了几类字符。用于在提交前就把弱口令拦下来，而不是等服务端回一句中文错误。 */
+export function countPasswordClasses(password: string): number {
+  return PASSWORD_CLASS_PATTERNS.filter((pattern) => pattern.test(password)).length;
+}
 
 /** 重发验证码的冷却秒数（前端倒计时 + 服务端节流同一个值）。 */
 export const COUNTDOWN_SECONDS = 60;
@@ -71,6 +107,8 @@ export function validateForgetField(
           params: { min: ACCOUNT_MIN_LENGTH, max: ACCOUNT_MAX_LENGTH },
         };
       }
+      // 用户名与邮箱都收：只收用户名时，填邮箱的人会看到「已发送」但永远收不到信。
+      if (!isForgetAccountFormat(value)) return { key: 'forgetPassword.rule.accountFormat' };
       return null;
     }
     case 'code': {
@@ -88,6 +126,9 @@ export function validateForgetField(
           key: 'forgetPassword.rule.passwordLength',
           params: { min: FORGET_PASSWORD_MIN_LENGTH },
         };
+      }
+      if (countPasswordClasses(draft.newPassword) < PASSWORD_CLASS_MIN) {
+        return { key: 'forgetPassword.rule.passwordWeak', params: { min: PASSWORD_CLASS_MIN } };
       }
       return null;
     }

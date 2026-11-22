@@ -51,8 +51,8 @@ const step = ref<ForgetStep>(1);
 const loading = ref(false);
 const sending = ref(false);
 const countdown = ref(0);
-/** 演示环境专用：dev 下服务端把验证码直接回传，这里提示给用户，免去「邮件」这一环。 */
-const devCode = ref('');
+/** 验证码去了哪里：`email` 已投递邮箱；`console` 开发环境打在服务端控制台。 */
+const delivery = ref<'email' | 'console' | ''>('');
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let redirectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -122,9 +122,14 @@ function revalidateConfirm(): void {
 
 /** 业务码 → 当前语言文案。服务端 msg 是中文，直接展示会在英文界面里漏出。 */
 function localizedError(error: unknown): string {
-  const code = (error as { data?: { code?: number } } | null)?.data?.code;
+  const code =
+    (error as { data?: { code?: number }; code?: number } | null)?.data?.code ??
+    (error as { code?: number } | null)?.code;
   if (code === 429) return t('forgetPassword.tooFrequent');
+  if (code === 503) return t('forgetPassword.deliveryUnavailable');
   if (code === 404) return t('forgetPassword.accountNotFound');
+  if (code === 440) return t('forgetPassword.emailNotBound');
+  if (code === 441) return t('forgetPassword.emailNotFound');
   if (code === 422) return t('forgetPassword.invalid');
   return getErrorMessage(error, t('forgetPassword.failed'));
 }
@@ -165,10 +170,14 @@ async function requestCode(): Promise<void> {
   sending.value = true;
   try {
     const result = await fetchSendResetCode({ account: draft.account.trim() });
-    devCode.value = result.devCode ?? '';
+    delivery.value = result.delivery;
     step.value = 2;
     startCountdown(result.cooldown);
-    ElMessage.success(t('forgetPassword.codeSentTip'));
+    ElMessage.success(
+      result.delivery === 'console'
+        ? t('forgetPassword.codeSentConsole')
+        : t('forgetPassword.codeSentTip'),
+    );
   } catch (error) {
     ElMessage.error(localizedError(error));
   } finally {
@@ -201,7 +210,7 @@ async function submit(): Promise<void> {
     draft.code = '';
     draft.newPassword = '';
     draft.confirmPassword = '';
-    devCode.value = '';
+    delivery.value = '';
     stopCountdown();
 
     ElMessage.success(t('forgetPassword.success'));
@@ -226,6 +235,7 @@ function handleBack(): void {
     draft.code = '';
     draft.newPassword = '';
     draft.confirmPassword = '';
+    delivery.value = '';
     formRef.value?.clearValidate();
     return;
   }
@@ -287,8 +297,12 @@ function handleBack(): void {
           </div>
         </ElFormItem>
 
-        <p v-if="devCode" class="nomi-forget-devcode">
-          {{ t('forgetPassword.demoCode', { code: devCode }) }}
+        <p v-if="delivery" class="nomi-forget-notice">
+          {{
+            delivery === 'console'
+              ? t('forgetPassword.codeSentConsoleHint')
+              : t('forgetPassword.codeSentEmailHint')
+          }}
         </p>
 
         <ElFormItem prop="newPassword">

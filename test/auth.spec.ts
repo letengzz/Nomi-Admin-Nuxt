@@ -12,6 +12,7 @@ import {
 import { buildPrimaryVars, mixColor, THEME_COLORS } from '../app/utils/theme';
 import { getErrorMessage } from '../app/services/auth';
 import { readRememberLogin, saveRememberLogin } from '../app/utils/storage-key';
+import { buildLoginLookup } from '../server/utils/auth/session';
 
 describe('主题色工具', () => {
   it('mixColor 的边界权重返回对应纯色', () => {
@@ -73,6 +74,18 @@ describe('getErrorMessage', () => {
 
   it('未知错误返回兜底文案', () => {
     expect(getErrorMessage(null)).toBe('登录失败，请稍后重试');
+  });
+});
+
+describe('登录标识', () => {
+  it('登录名 / 手机号 / 邮箱三者都能匹配，且登录名优先', () => {
+    const lookup = buildLoginLookup('  Super@Nomi.dev  ');
+    expect(lookup.params).toEqual(['Super@Nomi.dev', 'Super@Nomi.dev', 'Super@Nomi.dev']);
+    expect(lookup.where).toContain('`username` = ?');
+    expect(lookup.where).toContain('`mobile` = ?');
+    expect(lookup.where).toContain('LOWER(`email`)');
+    expect(lookup.order).toContain('(`username` = ?) DESC');
+    expect(lookup.order).toContain('(`mobile` = ?) DESC');
   });
 });
 

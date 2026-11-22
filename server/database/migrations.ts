@@ -1031,6 +1031,8 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-22-harden-seeded-credentials', run: hardenSeededCredentials },
   // 强制改密引导用到的提示文案：同步种子，老库的语言管理里才有这几条可翻译。
   { name: '2026-11-22-sync-password-policy-entries', run: syncLanguageSeedEntries },
+  // 找回密码支持「用户名或邮箱」+ 邮件配置自检按钮：同步新词条。
+  { name: '2026-11-22-sync-password-reset-mail-entries', run: syncLanguageSeedEntries },
 ];
 
 /**

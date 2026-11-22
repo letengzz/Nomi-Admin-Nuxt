@@ -26,6 +26,7 @@ import {
   fetchSystemConfig,
   resetSystemConfig,
   saveSystemConfig,
+  sendTestMail,
   uploadSiteImage,
   type ConfigSection,
   type SystemConfig,
@@ -76,6 +77,10 @@ const brokenPreview = reactive({ logo: false, favicon: false });
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploadKind = ref<'logo' | 'favicon'>('logo');
 const uploading = ref<'logo' | 'favicon' | null>(null);
+
+/** 邮件自检：收件人默认填发件邮箱（给自己发一封最快能确认链路通不通）。 */
+const testTo = ref('');
+const testing = ref(false);
 
 const activeMeta = computed(() => SECTIONS.find((item) => item.key === active.value)!);
 const activeLabel = computed(() => t(activeMeta.value.label));
@@ -149,6 +154,30 @@ async function reset(): Promise<void> {
     ElMessage.error((error as Error).message);
   } finally {
     saving.value = false;
+  }
+}
+
+/**
+ * 邮件自检：用**已保存**的配置发一封测试信。
+ *
+ * 未保存的草稿不参与 —— 否则等于把「填了一半的 SMTP 参数」直接往服务器上打，
+ * 测出来的结果和真实运行时的行为也不一致。
+ */
+async function runTestMail(): Promise<void> {
+  if (testing.value) return;
+  const to = (testTo.value || form.email.fromAddress).trim();
+  if (!/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(to)) {
+    ElMessage.warning(message('email.testAddressRequired', '请先填写收件地址'));
+    return;
+  }
+  testing.value = true;
+  try {
+    await sendTestMail(to);
+    ElMessage.success(message('email.testOk', '测试邮件已发送，请查收（含垃圾箱）'));
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    testing.value = false;
   }
 }
 
@@ -449,6 +478,20 @@ onMounted(load);
                 autocomplete="new-password"
               />
               <p class="config-tip">{{ label('email.passwordHint') }}</p>
+            </div>
+            <div class="config-field">
+              <label>{{ label('email.testTo') }}</label>
+              <div class="config-inline">
+                <ElInput
+                  v-model="testTo"
+                  :placeholder="form.email.fromAddress || label('email.testToPlaceholder')"
+                  clearable
+                />
+                <ElButton :loading="testing" :disabled="loading || saving" @click="runTestMail">
+                  {{ label('email.testSend') }}
+                </ElButton>
+              </div>
+              <p class="config-tip">{{ label('email.testHint') }}</p>
             </div>
           </div>
 
@@ -797,6 +840,17 @@ onMounted(load);
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 「输入 + 按钮」同一行：自检收件人和触发按钮在视觉上是一件事，不该分两行。 */
+.config-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-inline :deep(.el-input) {
+  flex: 1 1 auto;
 }
 
 .config-select {

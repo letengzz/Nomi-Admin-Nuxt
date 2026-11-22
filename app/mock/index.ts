@@ -243,12 +243,17 @@ function deleteById<T extends { id: number }>(list: T[], id: number): boolean {
 
 /**
  * 登录：演示环境不校验密码，任何密码都能进 —— 点开演示站的人不该先猜密码。
- * 账号名认不出来时退回超管，保证「随便填一个也能看到完整界面」。
+ * 登录名 / 手机号 / 邮箱都能匹配；认不出来时退回超管，保证「随便填一个也能看到完整界面」。
  */
 function loginResponse(body: Body): ApiEnvelope<unknown> {
-  const userName = bodyStr(body, 'userName').trim().toLowerCase();
+  const identifier = bodyStr(body, 'userName').trim().toLowerCase();
   const user =
-    demoState.users.find((item) => item.username.toLowerCase() === userName) ?? demoState.users[0];
+    demoState.users.find(
+      (item) =>
+        item.username.toLowerCase() === identifier ||
+        (Boolean(item.mobile) && item.mobile.toLowerCase() === identifier) ||
+        (Boolean(item.email) && item.email.toLowerCase() === identifier),
+    ) ?? demoState.users[0];
   if (!user) return fail('演示数据缺失');
   demoState.currentUsername = user.username;
   user.lastLoginTime = now();
@@ -309,7 +314,26 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: '/api/auth/password-code',
-    handler: () => ok({ expiresIn: 300, cooldown: 60, devCode: '123456' }),
+    handler: ({ body }) => {
+      // 与真实接口同口径：登录名 / 邮箱都能找人，没绑邮箱或未绑定用户要明说。
+      const account = bodyStr(body, 'account').trim().toLowerCase();
+      const isEmail = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(account);
+      const user = demoState.users.find(
+        (item) =>
+          item.username.toLowerCase() === account ||
+          (Boolean(item.email) && item.email.toLowerCase() === account),
+      );
+      if (!user) {
+        return fail(
+          isEmail ? '该邮箱未绑定用户，请检查后重试' : '该账号不存在，请检查后重试',
+          isEmail ? 441 : 404,
+        );
+      }
+      if (!user.email) {
+        return fail('该账号未绑定邮箱，无法发送验证码，请联系管理员', 440);
+      }
+      return ok({ expiresIn: 300, cooldown: 60, delivery: 'email' });
+    },
   },
   {
     method: 'POST',

@@ -26,14 +26,14 @@
   "login": {
     "pageTitle": "登录",
     "title": "欢迎回来",
-    "subTitle": "输入您的账号和密码登录",
+    "subTitle": "输入账号、手机号或邮箱与密码登录",
     "leftView": {
       "title": "一款兼具设计美学与高效开发的后台系统",
       "subTitle": "美观实用的界面，经过视觉优化，确保卓越的用户体验"
     },
     "accountLabel": "演示账号",
     "placeholder": {
-      "username": "请输入账号",
+      "username": "请输入账号、手机号或邮箱",
       "password": "请输入密码",
       "slider": "请拖动滑块完成验证"
     },
@@ -94,9 +94,9 @@
     "pageTitle": "忘记密码",
     "title": "忘记密码？",
     "titleStep2": "设置新密码",
-    "subTitle": "输入您的账号，我们会发送一条验证码",
+    "subTitle": "输入用户名或绑定邮箱，我们会发送一条验证码",
     "subTitleStep2": "验证码已发送至 {account}",
-    "placeholder": "请输入您的账号",
+    "placeholder": "请输入用户名或邮箱",
     "codePlaceholder": "请输入 6 位验证码",
     "newPasswordPlaceholder": "请输入新密码",
     "confirmPlaceholder": "请再次输入新密码",
@@ -108,21 +108,28 @@
     "resend": "{seconds}s 后重发",
     "remembered": "想起密码了？",
     "toLogin": "去登录",
-    "codeSentTip": "验证码已发送，请查收",
-    "demoCode": "演示环境验证码：{code}（5 分钟内有效）",
+    "codeSentTip": "验证码已发送至该账号绑定的邮箱，请查收",
+    "codeSentEmailHint": "验证码已发送至该账号绑定的邮箱，5 分钟内有效（没收到请检查垃圾邮件）",
+    "codeSentConsole": "验证码已输出到服务端控制台",
+    "codeSentConsoleHint": "开发环境：验证码打印在运行服务的终端里，5 分钟内有效",
     "success": "密码重置成功，即将返回登录页",
     "failed": "操作失败，请稍后重试",
     "invalid": "信息校验未通过，请检查后重试",
     "tooFrequent": "请求过于频繁，请稍后再试",
-    "accountNotFound": "该账号不存在，请确认后重试",
-    "hint": "演示环境：可用 super / admin / user 或注册过的账号重置密码，验证码会直接显示在页面上",
+    "deliveryUnavailable": "当前未配置邮件服务，无法自助找回密码，请联系管理员重置",
+    "accountNotFound": "该账号不存在，请检查后重试",
+    "emailNotFound": "该邮箱未绑定用户，请检查后重试",
+    "emailNotBound": "该账号未绑定邮箱，无法发送验证码，请联系管理员",
+    "hint": "演示环境使用模拟接口：验证码不会真正发送，任意 6 位数字都能通过校验",
     "rule": {
       "accountRequired": "请输入账号",
       "accountLength": "账号长度需在 {min} 到 {max} 个字符之间",
+      "accountFormat": "请输入正确的用户名或邮箱",
       "codeRequired": "请输入验证码",
       "codeFormat": "验证码为 {length} 位数字",
       "newPasswordRequired": "请输入新密码",
       "passwordLength": "密码至少 {min} 位",
+      "passwordWeak": "密码需包含大写字母、小写字母、数字、符号中的至少 {min} 类",
       "confirmRequired": "请再次输入新密码",
       "passwordMismatch": "两次输入的密码不一致"
     }
@@ -511,7 +518,13 @@
         "usernamePlaceholder": "通常与发件邮箱相同或为邮箱前缀",
         "password": "SMTP 密码 / 授权码",
         "passwordPlaceholder": "请输入密码或第三方授权码",
-        "passwordHint": "密码仅保存在服务端，不会下发到页面显示"
+        "passwordHint": "密码仅保存在服务端，不会下发到页面显示",
+        "testTo": "配置自检",
+        "testToPlaceholder": "收件邮箱，默认发件邮箱",
+        "testSend": "发送测试邮件",
+        "testHint": "用已保存的配置发一封测试信；改完配置请先保存再测试",
+        "testAddressRequired": "请先填写收件地址",
+        "testOk": "测试邮件已发送，请查收（含垃圾箱）"
       },
       "storage": {
         "driver": "存储方式",

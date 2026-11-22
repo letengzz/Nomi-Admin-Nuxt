@@ -26,14 +26,14 @@
   "login": {
     "pageTitle": "Sign in",
     "title": "Welcome back",
-    "subTitle": "Please enter your account and password to login",
+    "subTitle": "Sign in with your username, mobile or email and password",
     "leftView": {
       "title": "A backend system of beauty and efficiency",
       "subTitle": "A sleek and practical interface for a great user experience"
     },
     "accountLabel": "Demo account",
     "placeholder": {
-      "username": "Please enter your account",
+      "username": "Username, mobile or email",
       "password": "Please enter your password",
       "slider": "Please slide to verify"
     },
@@ -94,9 +94,9 @@
     "pageTitle": "Reset password",
     "title": "Forgot password?",
     "titleStep2": "Set a new password",
-    "subTitle": "Enter your account and we'll send you a verification code",
+    "subTitle": "Enter your username or bound email and we'll send you a verification code",
     "subTitleStep2": "A code has been sent to {account}",
-    "placeholder": "Please enter your account",
+    "placeholder": "Username or email",
     "codePlaceholder": "Enter the 6-digit code",
     "newPasswordPlaceholder": "Enter a new password",
     "confirmPlaceholder": "Enter the new password again",
@@ -108,21 +108,28 @@
     "resend": "Resend in {seconds}s",
     "remembered": "Remembered it?",
     "toLogin": "Sign in",
-    "codeSentTip": "Code sent, please check your inbox",
-    "demoCode": "Demo code: {code} (valid for 5 minutes)",
+    "codeSentTip": "A code has been sent to the email bound to this account",
+    "codeSentEmailHint": "Code sent to the email bound to this account. Valid for 5 minutes (check your spam folder)",
+    "codeSentConsole": "Code printed to the server console",
+    "codeSentConsoleHint": "Development mode: the code is printed in the terminal running the server, valid for 5 minutes",
     "success": "Password reset. Taking you back to sign in…",
     "failed": "Something went wrong, please try again",
     "invalid": "Some details failed validation, please check and retry",
     "tooFrequent": "Too many requests, please try again later",
+    "deliveryUnavailable": "Email delivery is not configured, so self-service reset is disabled. Please ask an administrator to reset it",
     "accountNotFound": "This account does not exist, please check and retry",
-    "hint": "Demo: use super / admin / user or an account you registered; the code is shown right on this page",
+    "emailNotFound": "This email is not bound to any account, please check and retry",
+    "emailNotBound": "This account has no bound email, so a code cannot be sent. Please contact an administrator",
+    "hint": "Demo uses mocked APIs: no real email is sent, any 6-digit code is accepted",
     "rule": {
       "accountRequired": "Please enter your account",
       "accountLength": "Account must be {min} to {max} characters",
+      "accountFormat": "Please enter a valid username or email",
       "codeRequired": "Please enter the code",
       "codeFormat": "The code must be {length} digits",
       "newPasswordRequired": "Please enter a new password",
       "passwordLength": "Password must be at least {min} characters",
+      "passwordWeak": "Use at least {min} of these: uppercase, lowercase, digits, symbols",
       "confirmRequired": "Please enter the new password again",
       "passwordMismatch": "The two passwords do not match"
     }
@@ -511,7 +518,13 @@
         "usernamePlaceholder": "Usually the sender email or its prefix",
         "password": "SMTP password / app key",
         "passwordPlaceholder": "Enter the password or app-specific key",
-        "passwordHint": "The secret is stored server-side only and never sent back to the page"
+        "passwordHint": "The secret is stored server-side only and never sent back to the page",
+        "testTo": "Connection test",
+        "testToPlaceholder": "Recipient, defaults to the from address",
+        "testSend": "Send test email",
+        "testHint": "Sends a test email using the saved settings; save your changes first",
+        "testAddressRequired": "Please enter a recipient address",
+        "testOk": "Test email sent, please check your inbox (and spam folder)"
       },
       "storage": {
         "driver": "Storage driver",

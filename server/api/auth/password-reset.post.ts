@@ -1,30 +1,46 @@
 /**
  * 校验验证码并重置密码。
  *
- * 顺序仍然是「先查账号 → 再消耗验证码 → 最后写密码」：任何一步失败都不能让
- * 验证码被白白消耗掉（consumeResetCode 内部只在成功时才删除记录）。
+ * ## 与旧版的三个关键差异
  *
- * 与旧版的区别：密码写进 `user` 表的 scrypt 哈希，并**清掉该账号的所有 token** ——
- * 改密码的语义是「把别人踢下线」，只改哈希等于旧会话还能继续用。
+ * 1. **不再返回 `404 该账号不存在`**。旧版先查账号、查不到就 404，等于给了一个
+ *    「这个账号存在吗」的免费查询接口 —— 配合注册接口的 409，整个用户名录可以被扫出来。
+ *    现在先消耗验证码、再查账号：账号不存在时永远只会看到「验证码不存在或已失效」。
+ *
+ * 2. **新密码走强策略**（`checkPasswordStrength`：≥10 位、四类字符取三、不含账号名）。
+ *    旧版只要求 6 位，于是「找回密码」成了绕过登录页强口令的唯一后门：
+ *    把管理员密码重置成 `123456` 照样能登录。
+ *
+ * 3. **按 IP 限流**。验证码 6 位、5 次上限是「同一枚码」的约束，但攻击者可以不断
+ *    重新申请新码来重置额度，所以入口这一层必须再挡一道。
+ *
+ * 密码改完立刻清掉该账号的全部登录态：改密的语义是「把别人踢下线」，
+ * 只改哈希的话，已经拿到 token 的人还能继续用。
  */
 import { definePublicHandler } from '../../utils/auth/handler';
-import { ApiError } from '../../utils/http';
-import { consumeResetCode, RESET_CODE_LENGTH, type ResetCodeStatus } from '../../utils/reset-codes';
-import { findAdminByUsername } from '../../utils/auth/session';
-import { hashPassword } from '../../utils/auth/password';
+import { checkPasswordStrength, hashPassword } from '../../utils/auth/password';
+import { findAdminByAccount } from '../../utils/auth/session';
+import { nowSeconds } from '../../utils/auth/token';
 import { getPool } from '../../database/pool';
-import { hasUser, updatePassword } from '../../utils/registered-users';
+import { fail, ok } from '../../utils/http';
+import { consumeRateLimit } from '../../utils/rate-limit';
+import { clientIpOf } from '../../utils/request-ip';
+import { consumeResetCode, RESET_CODE_LENGTH } from '../../utils/reset-codes';
 
-// 与 app/utils/forget-password.ts 对齐，由 test/forget-password.spec.ts 断言。
-const PASSWORD_MIN = 6;
+/** 同一 IP 的提交频率：10 分钟 10 次。正常用户最多失败两三次。 */
+const IP_LIMIT = 10;
+const IP_WINDOW_MS = 10 * 60 * 1000;
 
-/** 验证码状态 → 用户能看懂的提示。故意不区分「账号是否存在」，减少枚举面。 */
-const CODE_ERROR: Record<Exclude<ResetCodeStatus, 'ok'>, string> = {
-  missing: '验证码不存在或已失效，请重新获取',
-  expired: '验证码已过期，请重新获取',
-  mismatch: '验证码不正确',
-  locked: '错误次数过多，验证码已作废，请重新获取',
-};
+/**
+ * 验证码校验失败时**唯一**的提示文案。
+ *
+ * 四种失败（没发过 / 过期 / 不对 / 试错超限）共用一句，是刻意的：
+ *   · 如果「没发过」和「不对」用不同的话，攻击者先申请一次验证码、再随便填一个，
+ *     就能从回执里读出「这个账号刚才有没有拿到验证码记录」—— 那是一个账号枚举器。
+ *   · 对真实用户来说，四种情况的处置动作完全一样：重新获取验证码。
+ *     区分它们只是让界面好看一点，代价是泄露账号是否存在。
+ */
+const CODE_REJECTED = '验证码不正确或已失效，请重新获取';
 
 export default definePublicHandler(async (event) => {
   const body = await readBody<{
@@ -37,36 +53,46 @@ export default definePublicHandler(async (event) => {
   const code = typeof body?.code === 'string' ? body.code.trim() : '';
   const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
 
-  if (!account) throw new ApiError('请输入账号');
-  if (!new RegExp(`^\\d{${RESET_CODE_LENGTH}}$`).test(code)) throw new ApiError('验证码为 6 位数字');
-  if (newPassword.length < PASSWORD_MIN) throw new ApiError(`密码不能少于 ${PASSWORD_MIN} 位`);
-
-  // 数据库是主来源；内存表只作为「MySQL 没起时演示流程仍可跑」的兜底。
-  const admin = await findAdminByUsername(account).catch(() => undefined);
-  if (!admin && !hasUser(account)) throw new ApiError('该账号不存在', 404);
-
-  const status = consumeResetCode(account, code);
-  if (status !== 'ok') throw new ApiError(CODE_ERROR[status]);
-
-  if (admin) {
-    const password = await hashPassword(newPassword);
-    const pool = getPool();
-    const ts = Math.floor(Date.now() / 1000);
-    await pool.query('UPDATE `user` SET `password` = ?, `salt` = \'\', `login_failure` = 0, `update_time` = ? WHERE `id` = ?', [
-      password,
-      ts,
-      admin.id,
-    ]);
-    await pool.query('DELETE FROM `token` WHERE `user_id` = ? AND `type` IN (?,?)', [
-      admin.id,
-      'admin',
-      'admin_refresh',
-    ]);
-    // 兜底：如果这个账号同时存在于内存演示表里，也一并同步，避免两套密码不一致。
-    if (hasUser(account)) updatePassword(account, newPassword);
-  } else {
-    updatePassword(account, newPassword);
+  if (!account) return fail('请输入账号', 422);
+  if (!new RegExp(`^\\d{${RESET_CODE_LENGTH}}$`).test(code)) {
+    return fail(`验证码为 ${RESET_CODE_LENGTH} 位数字`, 422);
   }
 
-  return { code: 200, msg: 'ok', data: { userName: account } };
+  const gate = consumeRateLimit(`reset-submit:${clientIpOf(event)}`, IP_LIMIT, IP_WINDOW_MS);
+  if (!gate.allowed) {
+    return fail(`请求过于频繁，请 ${Math.ceil(gate.retryAfterMs / 1000)} 秒后再试`, 429);
+  }
+
+  // 与「个人中心改密」用同一套策略，不因为入口不同就放宽 ——
+  // 找回密码恰恰是攻击者最想用的那条路径。
+  const weak = checkPasswordStrength(newPassword, { username: account });
+  if (weak) return fail(`新密码不符合要求：${weak}`, 422);
+
+  // 先消耗再查账号：顺序反过来的话，账号是否存在会通过「404 vs 验证码错误」泄露。
+  const status = consumeResetCode(account, code);
+  if (status !== 'ok') return fail(CODE_REJECTED, 422);
+
+  const admin = await findAdminByAccount(account).catch(() => undefined);
+  // 理论上不可能：没有账号就不会有验证码记录。兜底仍然回同一句话。
+  if (!admin) return fail(CODE_REJECTED, 422);
+
+  // 上面那次用输入值做「不能包含账号名」的判断；这里用真正的登录名复核一次 ——
+  // 用户可能是拿邮箱走进来的，那时 `account` 里没有登录名可比。
+  const weakForUser = checkPasswordStrength(newPassword, { username: admin.username });
+  if (weakForUser) return fail(`新密码不符合要求：${weakForUser}`, 422);
+
+  const pool = getPool();
+  await pool.query(
+    'UPDATE `user` SET `password` = ?, `salt` = \'\', `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ?',
+    [await hashPassword(newPassword), nowSeconds(), admin.id],
+  );
+
+  // 旧版只删 admin/admin_refresh 两类；这里保持同一口径（与 resetUserPassword 一致）。
+  await pool.query('DELETE FROM `token` WHERE `user_id` = ? AND `type` IN (?,?)', [
+    admin.id,
+    'admin',
+    'admin_refresh',
+  ]);
+
+  return ok({ userName: admin.username });
 });

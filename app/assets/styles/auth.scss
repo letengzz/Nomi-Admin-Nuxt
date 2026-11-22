@@ -389,8 +389,10 @@
   font-size: 13px;
 }
 
-// 演示环境把验证码直接提示出来（生产构建里这一行不会渲染）。
-.nomi-forget-devcode {
+// 验证码投递去向的提示条。
+// 这里**只说明发到哪儿**，不显示验证码本身 —— 页面上出现验证码等于把
+// 「谁能重置密码」这道题从「持有邮箱」降级成「能打开这个页面」。
+.nomi-forget-notice {
   margin: -8px 0 14px;
   padding: 6px 10px;
   font-size: 12px;
