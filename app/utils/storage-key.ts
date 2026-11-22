@@ -16,6 +16,8 @@
  * 这里只做字符串读写，不依赖 Vue / Nuxt，纯 vitest 环境同样可用。
  */
 
+import { REMEMBER_LOGIN_KEY, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+
 export const STORAGE_PREFIX = 'nomi';
 
 /** 持久化结构版本。改了某个 store 的持久化形状就 +1，旧值会在读不到时退回默认值。 */
@@ -34,6 +36,46 @@ export function legacyStorageKey(name: string): string {
 /** SSR 与「隐私模式下 localStorage 直接抛错」都要靠它兜住。 */
 export function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+/** 登录页「记住密码」的持久化结果：只含账号与勾选状态，绝不含密码。 */
+export interface RememberLoginChoice {
+  remember: boolean;
+  account: string;
+}
+
+/**
+ * 读取「记住密码」设置。
+ *
+ * 没写过勾选键时默认勾选（沿用登录页初始值），这样老用户升级后仍会回填账号；
+ * 显式取消过一次后，就算还残留账号也不回填 —— 否则用户会以为取消没生效。
+ */
+export function readRememberLogin(
+  storage: Storage | undefined = canUseStorage() ? window.localStorage : undefined,
+): RememberLoginChoice {
+  if (!storage) return { remember: true, account: '' };
+
+  const raw = storage.getItem(REMEMBER_LOGIN_KEY);
+  const remember = raw === null ? true : raw === '1';
+  if (!remember) {
+    storage.removeItem(REMEMBERED_ACCOUNT_KEY);
+    return { remember, account: '' };
+  }
+  return { remember, account: storage.getItem(REMEMBERED_ACCOUNT_KEY) ?? '' };
+}
+
+/**
+ * 保存「记住密码」设置。勾选才留账号，不勾选时连残留账号一起清掉。
+ */
+export function saveRememberLogin(
+  account: string,
+  remember: boolean,
+  storage: Storage | undefined = canUseStorage() ? window.localStorage : undefined,
+): void {
+  if (!storage) return;
+  storage.setItem(REMEMBER_LOGIN_KEY, remember ? '1' : '0');
+  if (remember) storage.setItem(REMEMBERED_ACCOUNT_KEY, account);
+  else storage.removeItem(REMEMBERED_ACCOUNT_KEY);
 }
 
 /**

@@ -23,7 +23,8 @@ import NomiAuthBrandPanel from '../components/auth/NomiAuthBrandPanel.vue';
 import NomiAuthTopBar from '../components/auth/NomiAuthTopBar.vue';
 import NomiSiteFooter from '../components/layout/NomiSiteFooter.vue';
 import NomiDragVerify from '../components/auth/NomiDragVerify.vue';
-import { DEMO_PASSWORD, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+import { DEMO_PASSWORD } from '../constants/auth';
+import { readRememberLogin, saveRememberLogin } from '../utils/storage-key';
 import { isDemoMode } from '../utils/api';
 import { HOME_PATH } from '../constants/layout';
 import { fetchLogin, getErrorMessage } from '../services/auth';
@@ -94,6 +95,8 @@ async function handleSubmit(): Promise<void> {
     const result = await fetchLogin({
       userName: formData.userName.trim(),
       password: formData.password,
+      // 勾选状态直接决定会话形态：不勾选就不发 refresh token，过期后必须重登。
+      keepLogin: formData.rememberPassword,
     });
     // 凭证与身份一次写完：store 内部会顺手判断「是不是换了个人」，
     // 是的话清掉上一位用户留下的标签页（docs/状态管理.md 3.4）。
@@ -106,11 +109,20 @@ async function handleSubmit(): Promise<void> {
     // 避免「登录了 A，侧边栏还是 B 的菜单」这种要刷新才好使的怪现象。
     usePermissionStore().reset();
 
-    // 记住的只有账号名，绝不保存明文密码。
-    if (formData.rememberPassword) {
-      localStorage.setItem(REMEMBERED_ACCOUNT_KEY, formData.userName.trim());
-    } else {
-      localStorage.removeItem(REMEMBERED_ACCOUNT_KEY);
+    // 记住「账号 + 勾选状态」两个偏好，绝不保存明文密码；
+    // 取消勾选也要落盘，否则刷新后复选框会回到默认勾选，看起来像没生效。
+    saveRememberLogin(formData.userName.trim(), formData.rememberPassword);
+
+    // 初始口令未改：后台只放行「改密 + 看自己资料」，直接送到改密入口，
+    // 别让用户先进仪表盘、再被一串 428 弹回来。
+    if (result.mustChangePassword) {
+      ElNotification.warning({
+        title: t('layout.profile.passwordRequiredTitle'),
+        message: t('layout.profile.passwordRequired'),
+        duration: 6000,
+      });
+      await navigateTo(localePath('/admin/profile'));
+      return;
     }
 
     ElNotification.success({
@@ -144,6 +156,10 @@ watch(locale, () => {
 });
 
 onMounted(async () => {
+  // 先恢复上次勾没勾：放在网络请求之前，避免配置接口慢时复选框先闪回默认勾选。
+  const remembered = readRememberLogin();
+  formData.rememberPassword = remembered.remember;
+
   const loginConfig = await fetchLoginConfig();
   captchaEnabled.value = loginConfig.captchaEnabled;
   registrationEnabled.value = loginConfig.registrationEnabled;
@@ -155,8 +171,7 @@ onMounted(async () => {
     formData.password = DEMO_PASSWORD;
   }
 
-  const remembered = localStorage.getItem(REMEMBERED_ACCOUNT_KEY);
-  if (remembered) formData.userName = remembered;
+  if (remembered.account) formData.userName = remembered.account;
 
   // 文档 18.8：注册成功后带 username 回来，直接预填，省掉用户重新敲一遍。
   const registered = route.query.username;

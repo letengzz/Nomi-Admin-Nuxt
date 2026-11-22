@@ -5,6 +5,8 @@ export interface LoginPayload {
   password: string;
   /** 登录页所选部门；账号须在该部门及其下级部门内才允许登录。 */
   departmentId?: number;
+  /** 对应登录页「记住密码」：false 时服务端不下发 refresh token，会话到期即需重登。 */
+  keepLogin?: boolean;
 }
 
 export interface LoginResult {
@@ -12,6 +14,11 @@ export interface LoginResult {
   refreshToken: string;
   role: string;
   userName: string;
+  /**
+   * 还在用初始 / 重置口令。为 true 时后台只放行「改密 + 看自己资料」，
+   * 登录页要直接把用户带到个人中心，而不是先跳仪表盘再被一堆 428 拦回来。
+   */
+  mustChangePassword: boolean;
 }
 
 /** 注册请求：协议同意的版本与时间一并留痕（docs/注册页设计.md 17.21 / 19.7）。 */

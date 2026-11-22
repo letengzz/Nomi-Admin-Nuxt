@@ -27,6 +27,7 @@ import {
 } from 'element-plus';
 import NomiIcon from '../../components/layout/NomiIcon.vue';
 import NomiSpinner from '../../components/layout/NomiSpinner.vue';
+import { usePermissionStore } from '../../stores/permission';
 import {
   changeSelfPassword,
   fetchSelfProfile,
@@ -57,7 +58,20 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load);
+/**
+ * 初始口令未改：页面一进来就把改密弹窗打开。
+ *
+ * 服务端的拦截（428）已经保证「不改密什么都干不了」，这里只是别让用户
+ * 对着一个空后台猜「为什么菜单都点不动」。弹窗允许关掉 —— 强制的是结果，
+ * 不是把人锁在模态框里。
+ */
+onMounted(async () => {
+  await load();
+  if (profile.value?.mustChangePassword) {
+    ElMessage.warning(t('layout.profile.passwordRequired'));
+    openDialog('password');
+  }
+});
 
 /** 姓名首字母当头像兜底；中文名取第一个字（比首字母更像「这个人」）。 */
 const avatarText = computed(() => {
@@ -229,7 +243,9 @@ const formRules = computed<FormRules>(() => {
     password: currentPassword,
     newPassword: [
       { required: true, message: t('layout.profile.newPasswordRequired'), trigger: 'blur' },
-      { min: 6, message: t('layout.profile.passwordTooShort'), trigger: 'blur' },
+      // 与服务端 checkPasswordStrength 的最低长度保持一致：前端先挡住，
+      // 用户不用等一次往返才知道「太短了」。
+      { min: 10, message: t('layout.profile.passwordPolicy'), trigger: 'blur' },
     ],
     confirmPassword: [
       { required: true, message: t('layout.profile.confirmPasswordRequired'), trigger: 'blur' },
@@ -265,6 +281,10 @@ async function submit(): Promise<void> {
     if (dialogKey.value === 'password') {
       await changeSelfPassword({ oldPassword: form.password, newPassword: form.newPassword });
       ElMessage.success(t('layout.profile.passwordChanged'));
+      // 服务端已经把标记清了，本地同步两处：横幅立刻收起，路由守卫不再把人弹回来。
+      if (profile.value) profile.value.mustChangePassword = false;
+      const permission = usePermissionStore();
+      if (permission.adminInfo) permission.adminInfo.mustChangePassword = false;
     } else {
       const result = await updateSelfContact({
         field: dialogKey.value,
@@ -315,6 +335,16 @@ function bindThirdParty(): void {
     </div>
 
     <div v-else class="nomi-grid nomi-grid--main profile-grid">
+      <!-- 初始口令未改：横幅 + 自动弹窗之外再给一个常驻入口。
+           用户关掉弹窗后，至少要能一眼看到「为什么别的菜单都点不动」。 -->
+      <div v-if="profile.mustChangePassword" class="profile-alert" role="alert">
+        <NomiIcon name="shield" :size="16" />
+        <p>{{ t('layout.profile.passwordRequired') }}</p>
+        <button type="button" class="nomi-btn" @click="openDialog('password')">
+          {{ t('layout.profile.modify') }}
+        </button>
+      </div>
+
       <!-- 左：基本信息 -->
       <section class="page-content profile-basic">
         <div class="profile-banner" aria-hidden="true" />
@@ -463,7 +493,7 @@ function bindThirdParty(): void {
               type="password"
               show-password
               autocomplete="new-password"
-              :placeholder="t('layout.profile.passwordPlaceholder')"
+              :placeholder="t('layout.profile.passwordPolicyShort')"
             />
           </ElFormItem>
           <ElFormItem :label="t('layout.profile.confirmPassword')" prop="confirmPassword">
@@ -527,6 +557,26 @@ function bindThirdParty(): void {
   /* 1.7fr / 1fr 时右栏只有 ~310px：号码 + 说明挤成三行，徽标和「修改」也贴得很近。
      1.55fr 让右栏拿到 ~420px，左栏仍然是最宽的一块。 */
   grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+}
+
+/* 初始口令提示条：横跨两栏，跟着警告色走，和普通卡片区分开。 */
+.profile-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  grid-column: 1 / -1;
+  color: var(--el-color-warning-dark-2);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 12px;
+}
+
+.profile-alert p {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .profile-side {

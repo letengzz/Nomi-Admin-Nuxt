@@ -1,6 +1,6 @@
 /**
  * 由 scripts/sync-language-seed.mjs 生成，请勿手改。
- * 来源：i18n/locales/zh.json + en.json（共 937 个词条）。
+ * 来源：i18n/locales/zh.json + en.json（共 939 个词条）。
  * 运行 `pnpm lang:sync` 重新生成。
  */
 export interface LanguageEntrySeed {
@@ -542,6 +542,10 @@ export const LANGUAGE_ENTRY_SEEDS: readonly LanguageEntrySeed[] = [
   { key: 'layout.profile.passwordDialog', module: 'layout', zh: '修改登录密码', en: 'Change password' },
   { key: 'layout.profile.passwordMismatch', module: 'layout', zh: '两次输入的新密码不一致', en: 'The two passwords do not match' },
   { key: 'layout.profile.passwordPlaceholder', module: 'layout', zh: '至少 6 位', en: 'At least 6 characters' },
+  { key: 'layout.profile.passwordPolicy', module: 'layout', zh: '至少 10 位，且包含大小写字母、数字、符号中的三类', en: 'At least 10 characters, using three of: lowercase, uppercase, digits, symbols' },
+  { key: 'layout.profile.passwordPolicyShort', module: 'layout', zh: '至少 10 位', en: 'At least 10 characters' },
+  { key: 'layout.profile.passwordRequired', module: 'layout', zh: '当前密码是系统下发的初始密码，修改后才能使用其他功能', en: 'You are still using the initial password. Change it before using other features' },
+  { key: 'layout.profile.passwordRequiredTitle', module: 'layout', zh: '请先修改初始密码', en: 'Change your initial password' },
   { key: 'layout.profile.passwordTooShort', module: 'layout', zh: '新密码至少 6 位', en: 'At least 6 characters' },
   { key: 'layout.profile.phone', module: 'layout', zh: '手机号', en: 'Phone' },
   { key: 'layout.profile.qqDesc', module: 'layout', zh: '绑定后，可通过 QQ 进行登录', en: 'Sign in with QQ once linked' },

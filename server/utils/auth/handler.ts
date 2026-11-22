@@ -63,6 +63,15 @@ export interface AdminHandlerOptions {
    * 只给「拉取权限数据」这类必须先成功、才能判断对方是不是超管的接口用。
    */
   bypassMaintenance?: boolean;
+  /**
+   * true = 账号还没改初始密码时也放行。
+   *
+   * 只给「改密流程本身离不开」的接口用：拉菜单（改密页也在后台布局里）、
+   * 看自己的资料、改自己的密码、退出登录、会话心跳。
+   * 其它接口一律回 428 —— 少写一个 true 的后果是「改完密码才能用」，
+   * 而不是「没改密码也能用」，方向是安全的。
+   */
+  bypassPasswordChange?: boolean;
 }
 
 export type AdminHandler = (event: H3Event, context: AdminContext) => Promise<unknown> | unknown;
@@ -158,6 +167,13 @@ export function defineAdminHandler(
       if (!auth.ok) return fail(auth.msg, auth.code);
 
       const context = auth.context;
+
+      // 0) 初始口令未改：除改密流程本身外一律拒绝。
+      //    放在 RBAC 之前 —— 这不是「权限不够」，而是「账号还没完成激活」，
+      //    报「没有权限」会让用户去找管理员要授权，方向完全错了。
+      if (context.mustChangePassword && !options.bypassPasswordChange) {
+        return fail('请先修改初始密码后再使用其他功能', BusinessCode.NEED_PASSWORD_CHANGE);
+      }
 
       // 维护模式：服务端也要挡，光靠前端路由跳走的话，普通用户直接调接口仍能用系统。
       // 超管放行 —— 否则一旦打开维护模式，就没人能进设置页把它关掉了。

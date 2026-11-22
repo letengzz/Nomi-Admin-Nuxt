@@ -78,6 +78,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`password\` varchar(255) NOT NULL COMMENT 'scrypt 哈希，明文永不落库',
     \`salt\` varchar(30) NOT NULL DEFAULT '' COMMENT '历史遗留字段，仅兼容旧密码',
     \`login_failure\` tinyint unsigned NOT NULL DEFAULT 0 COMMENT '连续登录失败次数',
+    \`must_change_password\` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 = 首次登录必须改密（初始/重置口令）',
     \`last_login_time\` bigint NOT NULL DEFAULT 0,
     \`last_login_ip\` varchar(50) NOT NULL DEFAULT '',
     \`status\` varchar(30) NOT NULL DEFAULT 'enable' COMMENT 'enable / disable',

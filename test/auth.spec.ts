@@ -2,10 +2,16 @@
  * 登录页支撑层单测：主题色计算、演示账号、错误信息提取。
  * 全部是纯函数，跑在 happy-dom 环境里，不需要拉起 Nuxt 运行时。
  */
-import { describe, expect, it } from 'vitest';
-import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../app/constants/auth';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  DEMO_ACCOUNTS,
+  DEMO_PASSWORD,
+  REMEMBERED_ACCOUNT_KEY,
+  REMEMBER_LOGIN_KEY,
+} from '../app/constants/auth';
 import { buildPrimaryVars, mixColor, THEME_COLORS } from '../app/utils/theme';
 import { getErrorMessage } from '../app/services/auth';
+import { readRememberLogin, saveRememberLogin } from '../app/utils/storage-key';
 
 describe('主题色工具', () => {
   it('mixColor 的边界权重返回对应纯色', () => {
@@ -67,5 +73,34 @@ describe('getErrorMessage', () => {
 
   it('未知错误返回兜底文案', () => {
     expect(getErrorMessage(null)).toBe('登录失败，请稍后重试');
+  });
+});
+
+describe('记住密码偏好', () => {
+  afterEach(() => {
+    localStorage.removeItem(REMEMBER_LOGIN_KEY);
+    localStorage.removeItem(REMEMBERED_ACCOUNT_KEY);
+  });
+
+  it('首次访问默认勾选，但没有账号可回填', () => {
+    expect(readRememberLogin()).toEqual({ remember: true, account: '' });
+  });
+
+  it('勾选时保存账号，读回来仍为勾选', () => {
+    saveRememberLogin('nomi', true);
+    expect(readRememberLogin()).toEqual({ remember: true, account: 'nomi' });
+  });
+
+  it('取消勾选会清掉账号，并记住「不勾选」这个状态', () => {
+    saveRememberLogin('nomi', true);
+    saveRememberLogin('nomi', false);
+
+    expect(localStorage.getItem(REMEMBERED_ACCOUNT_KEY)).toBeNull();
+    expect(readRememberLogin()).toEqual({ remember: false, account: '' });
+  });
+
+  it('兼容老版本只存了账号、没有勾选键的情况', () => {
+    localStorage.setItem(REMEMBERED_ACCOUNT_KEY, 'legacy');
+    expect(readRememberLogin()).toEqual({ remember: true, account: 'legacy' });
   });
 });

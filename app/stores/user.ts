@@ -155,7 +155,9 @@ export const useUserStore = defineStore('user', () => {
   }): void {
     patch({
       accessToken: payload.token,
-      ...(payload.refreshToken ? { refreshToken: payload.refreshToken } : {}),
+      // 不记住密码时服务端返回空 refresh token：这里必须显式清空，
+      // 否则同一个人重新登录会沿用上一次的续期凭据，「不记住」就白取消了。
+      refreshToken: payload.refreshToken ?? '',
       info: { ...state.value.info, ...payload.info },
     });
     checkAndClearWorktabs();

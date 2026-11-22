@@ -42,6 +42,8 @@ export default definePublicHandler(async (event) => {
       expireTime: result.tokens.expireTime,
       role,
       userName: result.profile.username,
+      // 前端据此把用户直接带到「改密」页，而不是进后台再被一堆 428 拦住。
+      mustChangePassword: result.profile.mustChangePassword,
     },
   };
 });

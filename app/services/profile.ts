@@ -34,6 +34,8 @@ export interface SelfProfile {
     email: boolean;
     password: boolean;
   };
+  /** 还在用初始 / 重置口令：界面要把用户按到改密流程上 */
+  mustChangePassword: boolean;
   thirdParty: {
     qq: boolean;
     wechat: boolean;

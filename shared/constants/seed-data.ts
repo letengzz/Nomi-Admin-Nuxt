@@ -183,19 +183,30 @@ export interface AdminSeed {
   id: number;
   username: string;
   nickname: string;
-  password: string;
   departmentId: number;
   roleIds: number[];
+  /**
+   * 演示账号：只在非生产环境（或显式 `SEED_DEMO_ACCOUNTS=1`）创建。
+   * 生产环境种子只建 `super` 一个，其余账号由管理员自己拉人。
+   */
+  demo?: boolean;
 }
 
 /**
- * 三个演示账号，与登录页的演示数据一一对应（super / admin / user，密码 123456）。
- * 首次启动会把它们写进数据库；线上部署后请立刻改密码或删掉多余账号。
+ * 种子管理员。
+ *
+ * ★ 这里**没有 password 字段**，而且不能加回来：
+ *   写死口令等于每一套新装实例都带同一个公开凭据；口令的解析见
+ *   `server/utils/auth/initial-password.ts`（环境变量或启动时随机生成），
+ *   落库时由 `server/database/seed.ts` 现算。
+ *
+ * `id` 必须显式写死：`user_role` 与审计日志都按 id 关联，自增会让每次全新安装
+ * 指向不同的人。
  */
 export const SEED_ADMINS: readonly AdminSeed[] = [
-  { id: 1, username: 'super', nickname: '超级管理员', password: '123456', departmentId: 1, roleIds: [1] },
-  { id: 2, username: 'admin', nickname: '管理员', password: '123456', departmentId: 2, roleIds: [2] },
-  { id: 3, username: 'user', nickname: '普通用户', password: '123456', departmentId: 8, roleIds: [3] },
+  { id: 1, username: 'super', nickname: '超级管理员', departmentId: 1, roleIds: [1] },
+  { id: 2, username: 'admin', nickname: '管理员', departmentId: 2, roleIds: [2], demo: true },
+  { id: 3, username: 'user', nickname: '普通用户', departmentId: 8, roleIds: [3], demo: true },
 ];
 
 /** 注册页新建的账号默认挂这个角色（普通用户）。 */
@@ -207,7 +218,6 @@ export interface UserSeed {
   email: string;
   mobile: string;
   motto: string;
-  password: string;
   /** enable / disable */
   status: string;
   departmentId: number;
@@ -215,14 +225,18 @@ export interface UserSeed {
   lastLoginDaysAgo?: number;
 }
 
-/** 演示员工。全部挂「普通用户」角色，部门落在各小组里，用户管理左树才有内容。 */
+/**
+ * 演示员工。全部挂「普通用户」角色，部门落在各小组里，用户管理左树才有内容。
+ *
+ * 同样不含口令，且只在非生产环境创建（见 `seed.ts` 的 demoAccountsEnabled）。
+ */
 export const SEED_USERS: readonly UserSeed[] = [
-  { username: 'linzhiyuan', nickname: '林知远', email: 'lin@nomi.dev', mobile: '13800000001', motto: '把复杂留在代码里', password: '123456', status: 'enable', departmentId: 2, lastLoginDaysAgo: 1 },
-  { username: 'zhouxiaotong', nickname: '周晓彤', email: 'zhou@nomi.dev', mobile: '13800000002', motto: '先跑通，再跑快', password: '123456', status: 'enable', departmentId: 3, lastLoginDaysAgo: 3 },
-  { username: 'wumingxuan', nickname: '吴明轩', email: 'wu@nomi.dev', mobile: '13800000003', motto: '', password: '123456', status: 'disable', departmentId: 4 },
-  { username: 'chensiyuan', nickname: '陈思远', email: 'chen@nomi.dev', mobile: '13800000004', motto: '数据说话', password: '123456', status: 'enable', departmentId: 5, lastLoginDaysAgo: 9 },
-  { username: 'sunkeyin', nickname: '孙可欣', email: 'sun@nomi.dev', mobile: '13800000005', motto: '', password: '123456', status: 'disable', departmentId: 6 },
-  { username: 'xuzimo', nickname: '徐子墨', email: 'xu@nomi.dev', mobile: '13800000006', motto: '慢即是快', password: '123456', status: 'enable', departmentId: 7, lastLoginDaysAgo: 21 },
-  { username: 'zhaoyinuo', nickname: '赵一诺', email: 'zhao@nomi.dev', mobile: '13800000007', motto: '增长来自细节', password: '123456', status: 'enable', departmentId: 8, lastLoginDaysAgo: 5 },
-  { username: 'qianduoduo', nickname: '钱多多', email: 'qian@nomi.dev', mobile: '13800000008', motto: '', password: '123456', status: 'enable', departmentId: 9, lastLoginDaysAgo: 2 },
+  { username: 'linzhiyuan', nickname: '林知远', email: 'lin@nomi.dev', mobile: '13800000001', motto: '把复杂留在代码里', status: 'enable', departmentId: 2, lastLoginDaysAgo: 1 },
+  { username: 'zhouxiaotong', nickname: '周晓彤', email: 'zhou@nomi.dev', mobile: '13800000002', motto: '先跑通，再跑快', status: 'enable', departmentId: 3, lastLoginDaysAgo: 3 },
+  { username: 'wumingxuan', nickname: '吴明轩', email: 'wu@nomi.dev', mobile: '13800000003', motto: '', status: 'disable', departmentId: 4 },
+  { username: 'chensiyuan', nickname: '陈思远', email: 'chen@nomi.dev', mobile: '13800000004', motto: '数据说话', status: 'enable', departmentId: 5, lastLoginDaysAgo: 9 },
+  { username: 'sunkeyin', nickname: '孙可欣', email: 'sun@nomi.dev', mobile: '13800000005', motto: '', status: 'disable', departmentId: 6 },
+  { username: 'xuzimo', nickname: '徐子墨', email: 'xu@nomi.dev', mobile: '13800000006', motto: '慢即是快', status: 'enable', departmentId: 7, lastLoginDaysAgo: 21 },
+  { username: 'zhaoyinuo', nickname: '赵一诺', email: 'zhao@nomi.dev', mobile: '13800000007', motto: '增长来自细节', status: 'enable', departmentId: 8, lastLoginDaysAgo: 5 },
+  { username: 'qianduoduo', nickname: '钱多多', email: 'qian@nomi.dev', mobile: '13800000008', motto: '', status: 'enable', departmentId: 9, lastLoginDaysAgo: 2 },
 ];

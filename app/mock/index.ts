@@ -167,6 +167,8 @@ function adminInfo(): AdminInfo {
     lastLoginTime: user?.lastLoginTime ?? 0,
     lastLoginIp: user?.lastLoginIp ?? '',
     super: Boolean(user?.isSuper),
+    // 演示站不模拟「初始口令未改」：否则一点登录就被送去改密页。
+    mustChangePassword: false,
     departmentId: user?.departmentId ?? 0,
     rules: rules.map((rule) => String(rule.id)),
     roles: (user?.roles ?? []).map((role) => ({ id: role.id, name: role.name })),

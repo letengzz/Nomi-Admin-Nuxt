@@ -141,6 +141,16 @@ describe('user store', () => {
     expect(user.info.userName).toBe('nomi');
   });
 
+  it('重新登录但服务端没发 refresh token 时，旧的续期凭据要清掉', () => {
+    const user = useUserStore();
+    user.login({ token: 't1', refreshToken: 'r1', info: { userId: 'u1', userName: 'nomi' } });
+    expect(user.refreshToken).toBe('r1');
+
+    // 「记住密码」取消勾选：keepLogin=false，服务端返回空 refresh token。
+    user.login({ token: 't2', info: { userId: 'u1', userName: 'nomi' } });
+    expect(user.refreshToken).toBe('');
+  });
+
   it('登出清凭证与身份，但保留语言与搜索历史', async () => {
     const user = useUserStore();
     user.login({ token: 't1', info: { userId: 'u1', userName: 'nomi' } });

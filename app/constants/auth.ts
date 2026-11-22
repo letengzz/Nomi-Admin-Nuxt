@@ -14,6 +14,14 @@ export const DEMO_PASSWORD = '123456';
 
 export const REMEMBERED_ACCOUNT_KEY = 'nomi:last-account';
 
+/**
+ * 「记住密码」勾选状态：1 = 记住账号并保持登录，0 = 都不记住。
+ *
+ * 这里刻意不存密码：与 docs/登录页设计参考文档.md 9.5 / 13.7 一致，
+ * 真正的「长期登录」由服务端下发的 refresh token 承担。
+ */
+export const REMEMBER_LOGIN_KEY = 'nomi:remember-login';
+
 export interface DemoAccount {
   /** 与 seed 里 department 的 id 对齐：1 总经办 / 2 技术中心 / 8 市场运营中心 */
   departmentId: number;

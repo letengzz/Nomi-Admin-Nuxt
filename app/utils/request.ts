@@ -72,6 +72,32 @@ function redirectToLogin(): void {
   if (!window.location.pathname.endsWith('/login')) void navigateTo(target);
 }
 
+/** 业务码 428：初始/重置口令未改。 */
+const NEED_PASSWORD_CHANGE = 428;
+
+/** 一次会话里只跳一次：并发的几个请求同时收到 428 时，别互相抢路由。 */
+let passwordChangeRedirecting = false;
+
+/**
+ * 把用户送到「改密」入口。
+ *
+ * 保留语言前缀：当前路径是 `/en/admin/xxx`，目标就该是 `/en/admin/profile`，
+ * 用正则替换掉 `/admin` 之后的部分，而不是拼一个写死的中文路径。
+ */
+function redirectToPasswordChange(): void {
+  if (!import.meta.client || passwordChangeRedirecting) return;
+  const target = window.location.pathname.replace(/\/admin(?:\/.*)?$/, '/admin/profile');
+  if (window.location.pathname === target) return;
+
+  passwordChangeRedirecting = true;
+  void navigateTo(target);
+  // 改密失败（比如新密码不合规）后就停在页面上，5 秒后允许下一次跳转，
+  // 否则一次失败会把这个会话的引导彻底关掉。
+  window.setTimeout(() => {
+    passwordChangeRedirecting = false;
+  }, 5000);
+}
+
 /**
  * 发请求并**直接返回 data**。业务码非 200 时抛 `ApiRequestError`，
  * 调用方只需 try/catch 一次，不用每个接口都判 code。
@@ -106,6 +132,13 @@ export async function apiFetch<T>(url: string, options: RequestOptions = {}): Pr
   if (envelope.code === 303) {
     redirectToLogin();
     throw new ApiRequestError(envelope.msg || '请先登录', 303);
+  }
+
+  // ③ 初始口令未改：本次请求确实被拒绝了，但用户该做的事是「去改密」，
+  //    而不是看到一句「没有权限」去找管理员要授权。
+  if (envelope.code === NEED_PASSWORD_CHANGE) {
+    redirectToPasswordChange();
+    throw new ApiRequestError(envelope.msg || '请先修改初始密码', NEED_PASSWORD_CHANGE);
   }
 
   if (envelope.code !== 200) {

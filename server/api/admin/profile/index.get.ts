@@ -8,6 +8,6 @@ import { defineAdminHandler } from '../../../utils/auth/handler';
 import { getSelfProfile } from '../../../utils/auth/profile-service';
 import { ok } from '../../../utils/http';
 
-export default defineAdminHandler({ log: false }, async (_event, context) => {
+export default defineAdminHandler({ log: false, bypassPasswordChange: true }, async (_event, context) => {
   return ok(await getSelfProfile(context.admin.id));
 });

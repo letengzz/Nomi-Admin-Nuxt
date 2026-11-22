@@ -15,6 +15,11 @@
  */
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { hashPassword } from '../utils/auth/password';
+import {
+  persistInitialPassword,
+  resolveInitialAdminPassword,
+  type InitialPassword,
+} from '../utils/auth/initial-password';
 import { DEFAULT_CONFIG } from '../utils/system-config';
 import {
   DEFAULT_ROLE_ID,
@@ -95,11 +100,7 @@ async function isEmpty(pool: Pool, table: string): Promise<boolean> {
 }
 
 /** 账号 → 角色的映射表写入（账号 id 已知）。 */
-async function insertRoles(
-  pool: Pool,
-  userId: number,
-  roleIds: readonly number[],
-): Promise<void> {
+async function insertRoles(pool: Pool, userId: number, roleIds: readonly number[]): Promise<void> {
   if (roleIds.length === 0) return;
   await pool.query('INSERT IGNORE INTO `user_role` (`user_id`,`role_id`) VALUES ?', [
     roleIds.map((roleId) => [userId, roleId]),
@@ -109,6 +110,67 @@ async function insertRoles(
 export interface SeedReport {
   /** 表名 → 本次写入行数；空对象表示库已经初始化过，本次什么都没写 */
   inserted: Record<string, number>;
+  /**
+   * 首次创建初始超管时的凭据。只在**本次真的写了 `user` 表**时存在，
+   * 由 `init.ts` 负责打印 / 落盘提示 —— 种子层不做控制台输出，方便单测。
+   */
+  initialAdmin?: {
+    username: string;
+    password: string;
+    source: InitialPassword['source'];
+    /** 随机口令落盘后的绝对路径；写文件失败时为 undefined */
+    filePath?: string;
+  };
+}
+
+/**
+ * 是否创建演示账号（admin / user + 8 名员工）。
+ *
+ * 默认「非生产环境才建」：这些账号是给本地开发和演示站看的，口令与初始超管相同，
+ * 一旦跟着镜像进生产，等于又开了一扇没有必要的门。
+ * 例外用 `SEED_DEMO_ACCOUNTS=1`（构建演示环境时显式开启）/ `=0`（本地也不建）。
+ */
+export function demoAccountsEnabled(): boolean {
+  const flag = process.env.SEED_DEMO_ACCOUNTS?.trim();
+  if (flag === '1' || flag === 'true') return true;
+  if (flag === '0' || flag === 'false') return false;
+  return process.env.NODE_ENV !== 'production';
+}
+
+/** 这些表里出现过就必须提示的演示账号（升级上来的老库里可能还留着它们）。 */
+const DEMO_USERNAMES: readonly string[] = [
+  ...SEED_ADMINS.filter((admin) => admin.demo).map((admin) => admin.username),
+  ...SEED_USERS.map((user) => user.username),
+];
+
+export interface SeedAudit {
+  /** 仍处于「首次登录必须改密」状态的账号 */
+  pendingPasswordChange: string[];
+  /** 库里仍存在的演示账号 —— 生产环境出现这些说明种子是从老版本带过来的 */
+  demoAccounts: string[];
+}
+
+/**
+ * 启动时的账号体检（只读）。
+ *
+ * 两个必须让人看见的信号：
+ *   · 还有账号没改初始密码 —— 说明交付出去的凭据可能还生效；
+ *   · 生产库里躺着演示账号 —— 说明这套库是从老版本升级来的，需要人工清理。
+ * 都不自动修：删账号 / 停账号属于改数据，交给人决定。
+ */
+export async function auditSeededAccounts(pool: Pool): Promise<SeedAudit> {
+  const [pendingRows] = await pool.query<Array<{ username: string } & RowDataPacket>>(
+    'SELECT `username` FROM `user` WHERE `must_change_password` = 1 ORDER BY `id` ASC LIMIT 20',
+  );
+  const [demoRows] = await pool.query<Array<{ username: string } & RowDataPacket>>(
+    'SELECT `username` FROM `user` WHERE `username` IN (?) ORDER BY `id` ASC LIMIT 20',
+    [DEMO_USERNAMES],
+  );
+
+  return {
+    pendingPasswordChange: pendingRows.map((row) => row.username),
+    demoAccounts: demoRows.map((row) => row.username),
+  };
 }
 
 /**
@@ -214,21 +276,54 @@ export async function seedIfEmpty(pool: Pool): Promise<SeedReport> {
 
   if (!(await isEmpty(pool, 'user'))) return { inserted };
 
+  // ★ 口令从这里开始「现算」：环境变量优先，否则随机生成。源码里没有任何字面量。
+  //   放这一行而不是函数入口：已有库重启不该被一个配错的 INITIAL_ADMIN_PASSWORD 拦住。
+  const seedDemo = demoAccountsEnabled();
+  const initial = resolveInitialAdminPassword();
+  let initialAdmin: SeedReport['initialAdmin'];
+
   let userRows = 0;
   for (const admin of SEED_ADMINS) {
+    // 演示账号只在非生产环境创建，且与初始超管共用同一串随机口令 ——
+    // 「少一个写死的口令」比「多一个让本地方便的常量」重要得多。
+    if (admin.demo && !seedDemo) continue;
+
     // 逐个哈希：scrypt 是 CPU 密集的，查一次慢，但只在首次启动发生。
-    const password = await hashPassword(admin.password);
+    const password = await hashPassword(initial.password);
     await pool.query(
-      'INSERT INTO `user` (`id`,`username`,`department_id`,`nickname`,`password`,`status`,`create_time`,`update_time`) VALUES (?,?,?,?,?,?,?,?)',
-      [admin.id, admin.username, admin.departmentId, admin.nickname, password, 'enable', ts, ts],
+      'INSERT INTO `user` (`id`,`username`,`department_id`,`nickname`,`password`,`status`,`must_change_password`,`create_time`,`update_time`) VALUES (?,?,?,?,?,?,?,?,?)',
+      [
+        admin.id,
+        admin.username,
+        admin.departmentId,
+        admin.nickname,
+        password,
+        'enable',
+        // 种子账号的口令一定「经手过别人」（日志 / 文件 / 环境变量），首次登录必须换掉。
+        // 演示账号不打这个标记：它们的存在意义就是开箱即登，且不会进生产。
+        admin.demo ? 0 : 1,
+        ts,
+        ts,
+      ],
     );
     await insertRoles(pool, admin.id, admin.roleIds);
     userRows += 1;
+
+    if (!admin.demo) {
+      const filePath =
+        initial.source === 'generated' ? await persistInitialPassword(initial.password) : undefined;
+      initialAdmin = {
+        username: admin.username,
+        password: initial.password,
+        source: initial.source,
+        filePath,
+      };
+    }
   }
 
   const day = 24 * 3600;
-  for (const [index, user] of SEED_USERS.entries()) {
-    const password = await hashPassword(user.password);
+  for (const [index, user] of (seedDemo ? SEED_USERS : []).entries()) {
+    const password = await hashPassword(initial.password);
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT IGNORE INTO `user` (`username`,`department_id`,`nickname`,`email`,`mobile`,`motto`,`password`,`status`,`create_time`,`update_time`,`last_login_time`,`last_login_ip`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       [
@@ -254,5 +349,5 @@ export async function seedIfEmpty(pool: Pool): Promise<SeedReport> {
   }
   record('user', userRows);
 
-  return { inserted };
+  return { inserted, initialAdmin };
 }

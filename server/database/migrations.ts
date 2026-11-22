@@ -15,6 +15,7 @@
  * 都必须写成「已经在目标状态就什么都不做」，不能假设自己是唯一一次机会。
  */
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { verifyPassword } from '../utils/auth/password';
 import { LANGUAGE_ENTRY_SEEDS } from './language-seed';
 import { SEED_ADMINS, SEED_USERS, defaultConfigRows } from './seed';
 
@@ -119,7 +120,9 @@ export async function migrateLegacyTableNames(pool: Pool): Promise<string[]> {
     if (!(await tableExists(pool, table))) continue;
     if (!(await hasColumn(pool, table, from))) continue;
     if (await hasColumn(pool, table, to)) continue;
-    await pool.query(`ALTER TABLE \`${table}\` CHANGE \`${from}\` \`${to}\` ${columnType(table, from)}`);
+    await pool.query(
+      `ALTER TABLE \`${table}\` CHANGE \`${from}\` \`${to}\` ${columnType(table, from)}`,
+    );
     renamed.push(`${table}.${from} → ${table}.${to}`);
   }
 
@@ -139,8 +142,8 @@ export async function migrateLegacyTableNames(pool: Pool): Promise<string[]> {
 /** CHANGE 需要重复一遍列定义；这几列的定义很固定，直接查一次表结构最稳。 */
 function columnType(table: string, column: string): string {
   const map: Record<string, string> = {
-    'user_role.uid': 'int unsigned NOT NULL COMMENT \'user.id\'',
-    'user_role.group_id': 'int unsigned NOT NULL COMMENT \'role.id\'',
+    'user_role.uid': "int unsigned NOT NULL COMMENT 'user.id'",
+    'user_role.group_id': "int unsigned NOT NULL COMMENT 'role.id'",
     'operation_log.admin_id': 'int unsigned NOT NULL DEFAULT 0',
   };
   const type = map[`${table}.${column}`];
@@ -199,7 +202,11 @@ async function ensureRuleNodes(
  * 用「是否拥有锚点节点」而不是「是否叫管理员」来挑角色：角色名可以改，
  * 权限集合才是事实。超级管理员（`'*'`）不用补，它天生拥有全部节点。
  */
-async function grantRulesToRolesWith(pool: Pool, anchorName: string, ids: readonly number[]): Promise<void> {
+async function grantRulesToRolesWith(
+  pool: Pool,
+  anchorName: string,
+  ids: readonly number[],
+): Promise<void> {
   if (ids.length === 0) return;
   const anchorId = await ruleIdByName(pool, anchorName);
   if (!anchorId) return;
@@ -563,7 +570,12 @@ async function importLanguageEntries(pool: Pool): Promise<void> {
  * 为什么 WHERE 里要带原值：管理员在语言管理里改过的内容绝不能被迁移冲掉，
  * 所以只有「当前值恰好等于旧种子文案」的行才更新，其余一律放过。
  */
-type LanguageOverride = readonly [key: string, langCode: string, oldValue: string, newValue: string];
+type LanguageOverride = readonly [
+  key: string,
+  langCode: string,
+  oldValue: string,
+  newValue: string,
+];
 
 async function applyLanguageOverrides(
   pool: Pool,
@@ -687,7 +699,12 @@ async function syncOperationLogDrawerEntries(pool: Pool): Promise<void> {
 
   await applyLanguageOverrides(pool, [
     ['monitor.logs.expandHint', 'zh', '点击操作时间可展开日志详情', '点击操作时间可在右侧查看详情'],
-    ['monitor.logs.expandHint', 'en', 'Click the operation time to expand details', 'Click the operation time to view details on the right'],
+    [
+      'monitor.logs.expandHint',
+      'en',
+      'Click the operation time to expand details',
+      'Click the operation time to view details on the right',
+    ],
     [
       'monitor.online.kickConfirm',
       'zh',
@@ -712,7 +729,11 @@ async function syncOperationLogDrawerEntries(pool: Pool): Promise<void> {
  * 先删掉再按种子重新导入，保证 db 里的译文和 i18n 文件一致。
  */
 async function syncSplitPayloadSectionEntries(pool: Pool): Promise<void> {
-  await dropLanguageEntries(pool, ['monitor.logs.request', 'monitor.logs.response', 'monitor.logs.payload']);
+  await dropLanguageEntries(pool, [
+    'monitor.logs.request',
+    'monitor.logs.response',
+    'monitor.logs.payload',
+  ]);
   await syncLanguageSeedEntries(pool);
 }
 
@@ -906,11 +927,7 @@ async function addSystemMonitorMenu(pool: Pool): Promise<void> {
     { name: 'monitor/online/index', title: 'auth.action.view' },
     { name: 'monitor/online/kick', title: 'monitor.online.kick' },
   ]);
-  await grantRulesToRolesWith(pool, 'system/user/index', [
-    dirId,
-    onlineId,
-    ...actions.values(),
-  ]);
+  await grantRulesToRolesWith(pool, 'system/user/index', [dirId, onlineId, ...actions.values()]);
 }
 
 /**
@@ -1010,6 +1027,10 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-22-sync-user-import-entries', run: syncLanguageSeedEntries },
   // 登录所选部门记入会话：老 token 表补列，作为本次会话数据范围根。
   { name: '2026-11-22-add-token-scope-department', run: addTokenScopeDepartment },
+  // 初始口令加固：补 must_change_password 列，并把仍在使用旧版默认口令的种子账号标记为必须改密。
+  { name: '2026-11-22-harden-seeded-credentials', run: hardenSeededCredentials },
+  // 强制改密引导用到的提示文案：同步种子，老库的语言管理里才有这几条可翻译。
+  { name: '2026-11-22-sync-password-policy-entries', run: syncLanguageSeedEntries },
 ];
 
 /**
@@ -1081,6 +1102,62 @@ async function addNoticeModule(pool: Pool): Promise<void> {
   ]);
   // 以「能看用户列表」为锚点：能管人的角色，自然也该能维护公告。
   await grantRulesToRolesWith(pool, 'system/user/index', [menuId, ...actions.values()]);
+}
+
+/**
+ * 初始口令加固。
+ *
+ * 解决的是**存量实例**的问题：新版本已经不再写死口令，但升级上来的库里
+ * `super / 123456` 还躺着，且没有任何机制要求改掉。两步：
+ *
+ *   ① 补 `must_change_password` 列（新库由 schema.ts 直接带，老库在这里补）；
+ *   ② 把「口令不是 scrypt 哈希」或「仍然等于旧版默认口令 123456」的种子账号
+ *      标记为必须改密。口令是哈希，没法反推强弱，只能拿已知的默认值逐个试 ——
+ *      11 个账号 × 1 个候选 ≈ 0.7s，一次性迁移可以接受。
+ *
+ * 只标记、不重置：改别人的密码属于数据变更，交给人（登录后改密）来做。
+ */
+async function hardenSeededCredentials(pool: Pool): Promise<void> {
+  if (!(await hasColumn(pool, 'user', 'must_change_password'))) {
+    await pool.query(
+      "ALTER TABLE `user` ADD COLUMN `must_change_password` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 = 首次登录必须改密（初始/重置口令）'",
+    );
+  }
+
+  // 旧版种子写死的唯一口令。不要往这里加「猜测」：这张表只该包含**确定发布过**的值。
+  const legacyDefault = '123456';
+  const usernames = [...new Set([...SEED_ADMINS, ...SEED_USERS].map((item) => item.username))];
+
+  interface CredentialRow extends RowDataPacket {
+    id: number;
+    username: string;
+    password: string;
+    must_change_password: number;
+  }
+
+  const [rows] = await pool.query<CredentialRow[]>(
+    'SELECT `id`,`username`,`password`,`must_change_password` FROM `user` WHERE `username` IN (?)',
+    [usernames],
+  );
+
+  const flagged: string[] = [];
+  for (const row of rows) {
+    if (Number(row.must_change_password) === 1) continue;
+
+    const stored = String(row.password ?? '');
+    // 非 scrypt 前缀 = 早期明文口令（见 verifyPassword 的兼容分支），必须换掉。
+    const weak = !stored.startsWith('scrypt$') || (await verifyPassword(legacyDefault, stored));
+    if (!weak) continue;
+
+    await pool.query('UPDATE `user` SET `must_change_password` = 1 WHERE `id` = ?', [row.id]);
+    flagged.push(row.username);
+  }
+
+  if (flagged.length > 0) {
+    console.warn(
+      `[security] 以下种子账号仍在使用旧版默认口令，已标记为「首次登录必须改密」：${flagged.join(', ')}`,
+    );
+  }
 }
 
 /**

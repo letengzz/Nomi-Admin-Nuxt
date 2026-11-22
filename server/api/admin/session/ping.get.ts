@@ -16,7 +16,10 @@
 import { defineAdminHandler } from '../../../utils/auth/handler';
 import { nowSeconds } from '../../../utils/auth/token';
 
-export default defineAdminHandler({ log: false, touch: false, bypassMaintenance: true }, (_event, context) => ({
-  userId: context.admin.id,
-  serverTime: nowSeconds(),
-}));
+export default defineAdminHandler(
+  { log: false, touch: false, bypassMaintenance: true, bypassPasswordChange: true },
+  (_event, context) => ({
+    userId: context.admin.id,
+    serverTime: nowSeconds(),
+  }),
+);

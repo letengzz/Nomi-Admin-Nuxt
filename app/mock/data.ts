@@ -668,6 +668,8 @@ export function buildProfile(user: UserItem | undefined): SelfProfile {
     lastLoginIp: base?.lastLoginIp ?? '192.168.10.10',
     security: { mobile: true, email: true, password: false },
     thirdParty: { qq: false, wechat: false },
+    // 演示站不模拟「初始口令」状态：否则一进后台就被按到改密弹窗上。
+    mustChangePassword: false,
   };
 }
 

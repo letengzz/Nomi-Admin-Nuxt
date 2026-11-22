@@ -28,6 +28,8 @@ export interface AdminRow extends RowDataPacket {
   motto: string;
   status: string;
   login_failure: number;
+  /** 1 = 首次登录必须改密（初始口令 / 管理员重置的口令） */
+  must_change_password?: number;
   last_login_time: number;
   last_login_ip: string;
 }
@@ -82,6 +84,11 @@ export interface AdminContext {
   rules: RuleRow[];
   /** 登录时所选部门，本次会话的数据范围根；0 = 未选，退回账号所属部门 */
   scopeDepartmentId: number;
+  /**
+   * 是否必须先改密。来自 `user.must_change_password`，由守卫统一拦截：
+   * 放在上下文里而不是各接口自己查，是为了「漏掉一个接口」不会变成一条绕过路径。
+   */
+  mustChangePassword: boolean;
 }
 
 /** `'1, 21,22'` → `['1','21','22']`；`'*'` 原样保留。 */
@@ -156,7 +163,17 @@ export async function loadAdminContext(
   const ruleNames = new Set(rules.map((rule) => rule.name.toLowerCase()));
   if (isSuper) ruleNames.add('*');
 
-  return { admin, token, roles, ruleIds, isSuper, ruleNames, rules, scopeDepartmentId };
+  return {
+    admin,
+    token,
+    roles,
+    ruleIds,
+    isSuper,
+    ruleNames,
+    rules,
+    scopeDepartmentId,
+    mustChangePassword: Number(admin.must_change_password ?? 0) === 1,
+  };
 }
 
 /**

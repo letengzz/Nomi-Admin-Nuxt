@@ -12,7 +12,8 @@ import { recordLoginLog } from '../../utils/auth/admin-log';
 import { collectRequestMeta } from '../../utils/auth/request-meta';
 import { readRefreshToken, readAccessToken, revokeSession } from '../../utils/auth/token';
 
-export default defineAdminHandler({ log: false }, async (event, context) => {
+// 未改初始密码时也要能退出：否则用户被 428 卡住后连换账号都做不到。
+export default defineAdminHandler({ log: false, bypassPasswordChange: true }, async (event, context) => {
   const body = await readBody<{ refreshToken?: unknown }>(event).catch(() => null);
   const refreshToken = readRefreshToken(event, body) || undefined;
   await recordLoginLog({

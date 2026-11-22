@@ -47,6 +47,8 @@ export interface AdminProfile {
   status: string;
   lastLoginTime: number;
   lastLoginIp: string;
+  /** true = 还在用初始/重置口令，登录后必须先改密（其它接口会回 428） */
+  mustChangePassword: boolean;
 }
 
 export type AuthFailureCode = 303 | 409;
@@ -74,6 +76,7 @@ export function toProfile(admin: AdminRow): AdminProfile {
     status: admin.status,
     lastLoginTime: admin.last_login_time,
     lastLoginIp: admin.last_login_ip,
+    mustChangePassword: Number(admin.must_change_password ?? 0) === 1,
   };
 }
 

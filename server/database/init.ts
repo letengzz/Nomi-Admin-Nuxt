@@ -15,7 +15,7 @@ import { assertSafeDatabaseName, getDbConfig } from './config';
 import { runMigrations, migrateLegacyTableNames } from './migrations';
 import { getPool } from './pool';
 import { SCHEMA_STATEMENTS } from './schema';
-import { seedIfEmpty } from './seed';
+import { auditSeededAccounts, seedIfEmpty, type SeedReport } from './seed';
 
 const READY_KEY = Symbol.for('nomi.admin.mysql.ready');
 
@@ -97,6 +97,58 @@ async function cleanupExpiredTokens(pool: Pool): Promise<void> {
   await pool.query('DELETE FROM `token` WHERE `expire_time` < ?', [cutoff]).catch(() => undefined);
 }
 
+/**
+ * 首次创建初始超管时，把口令交付给部署方。
+ *
+ * 打印策略按环境分开，不搞「统一打一遍」：
+ *   · 开发：终端里直接给口令 —— 否则每次重建库都要去 data/ 翻文件；
+ *   · 生产：只给文件路径 —— 容器日志通常被集中采集，明文口令不该进日志系统。
+ *     万一文件写不进去（只读根文件系统），退化成打印口令并明确告警：
+ *     让人进不去系统，比多一条日志更糟。
+ */
+function announceInitialAdmin(initial: SeedReport['initialAdmin']): void {
+  if (!initial) return;
+
+  const line = (text: string): void => console.info(`[security] ${text}`);
+  const divider = '─'.repeat(56);
+
+  line(divider);
+  line(`已创建初始超级管理员：${initial.username}`);
+
+  if (initial.source === 'env') {
+    line('初始密码来自环境变量 INITIAL_ADMIN_PASSWORD，未输出到日志。');
+  } else if (initial.filePath) {
+    line(`初始密码已写入：${initial.filePath}（权限 600，改密后自动删除）`);
+    if (process.env.NODE_ENV !== 'production') line(`初始密码：${initial.password}`);
+  } else {
+    line(`⚠ 初始密码：${initial.password}`);
+    line('⚠ 未能写入文件，请立即记录并清理该段日志。');
+  }
+
+  line('该账号首次登录后必须先修改密码，改密前其他接口一律拒绝。');
+  line(divider);
+}
+
+/** 启动时的账号体检：让人看到「还有谁没改初始密码」「生产里还有没有演示账号」。 */
+async function reportAccountAudit(pool: Pool): Promise<void> {
+  const audit = await auditSeededAccounts(pool).catch(() => undefined);
+  if (!audit) return;
+
+  if (audit.pendingPasswordChange.length > 0) {
+    console.warn(
+      `[security] 以下账号仍在使用初始密码，首次登录将被要求改密：${audit.pendingPasswordChange.join(', ')}`,
+    );
+  }
+
+  // 只有生产环境才提演示账号：开发库里本来就有，天天告警等于没有告警。
+  if (process.env.NODE_ENV === 'production' && audit.demoAccounts.length > 0) {
+    console.warn(
+      `[security] 生产库中仍存在演示账号：${audit.demoAccounts.join(', ')}。` +
+        '这些账号来自旧版本的种子数据，请删除或禁用。',
+    );
+  }
+}
+
 async function bootstrap(): Promise<Pool> {
   const database = assertSafeDatabaseName(getDbConfig().database);
   const createdDatabase = await ensureDatabaseExists();
@@ -118,6 +170,11 @@ async function bootstrap(): Promise<Pool> {
   // 顺序不能反：全新库要先写入 id 写死的种子账号，迁移里的自增数据才不会抢占 id。
   const migrations = await runMigrations(pool);
   await cleanupExpiredTokens(pool);
+
+  // 口令交付放在迁移之后：迁移失败会导致启动失败，此时不该让部署方
+  // 以为「密码已经发出来了」。
+  announceInitialAdmin(seed.initialAdmin);
+  await reportAccountAudit(pool);
 
   lastReport = { database, createdDatabase, createdTables };
 

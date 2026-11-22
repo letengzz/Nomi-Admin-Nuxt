@@ -62,6 +62,7 @@ function context(overrides: Partial<AdminContext> = {}): AdminContext {
     ruleNames: names,
     rules,
     scopeDepartmentId: 0,
+    mustChangePassword: false,
     ...overrides,
   };
 }

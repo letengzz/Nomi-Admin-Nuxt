@@ -53,6 +53,11 @@ export interface AdminInfo {
   lastLoginIp: string;
   /** 只用于 UI（比如显示「超管」标记），**不是权限依据** */
   super: boolean;
+  /**
+   * 还在用初始 / 重置口令。为 true 时后台只放行「个人中心」，
+   * 由路由守卫与接口 428 双重保证 —— 前端这层是为了别把人弹到首页死循环。
+   */
+  mustChangePassword: boolean;
   /** 所属部门：前端只用来提示数据范围与设置表单默认值，真正的边界在服务端 */
   departmentId: number;
   rules: string[];

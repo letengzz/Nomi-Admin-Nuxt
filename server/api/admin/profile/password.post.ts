@@ -8,12 +8,16 @@ import { defineAdminHandler } from '../../../utils/auth/handler';
 import { changeSelfPassword, revokeOtherSessions } from '../../../utils/auth/profile-service';
 import { ok } from '../../../utils/http';
 
-export default defineAdminHandler({ log: 'layout.profile.security' }, async (event, context) => {
-  const body = (await readBody(event)) as Record<string, unknown> | undefined;
-  await changeSelfPassword(context.admin.id, {
-    oldPassword: body?.oldPassword,
-    newPassword: body?.newPassword,
-  });
-  await revokeOtherSessions(context.admin.id, context.token);
-  return ok(true);
-});
+// 必须放行「改密」本身：这是账号解除 428 限制的唯一出口。
+export default defineAdminHandler(
+  { log: 'layout.profile.security', bypassPasswordChange: true },
+  async (event, context) => {
+    const body = (await readBody(event)) as Record<string, unknown> | undefined;
+    await changeSelfPassword(context.admin.id, {
+      oldPassword: body?.oldPassword,
+      newPassword: body?.newPassword,
+    });
+    await revokeOtherSessions(context.admin.id, context.token);
+    return ok(true);
+  },
+);

@@ -15,7 +15,8 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import { getPool } from '../../database/pool';
 import { ApiError } from '../http';
-import { hashPassword, PASSWORD_MIN_LENGTH, verifyPassword } from './password';
+import { checkPasswordStrength, hashPassword, verifyPassword } from './password';
+import { removeInitialPasswordFile } from './initial-password';
 import { parseRules } from './rbac';
 import {
   findToken,
@@ -71,6 +72,11 @@ export interface SelfProfile {
     password: boolean;
   };
   /**
+   * true = 还在用初始 / 重置口令，界面必须先把用户按到改密流程上。
+   * 与登录响应里的同名字段同源（`user.must_change_password`）。
+   */
+  mustChangePassword: boolean;
+  /**
    * 第三方账号绑定状态。
    *
    * 目前恒为 false：项目还没有接 QQ 互联 / 微信开放平台（没有 clientId、
@@ -98,6 +104,7 @@ interface ProfileRow extends RowDataPacket {
   last_login_time: number;
   last_login_ip: string;
   create_time: number;
+  must_change_password: number;
 }
 
 interface RoleRow extends RowDataPacket {
@@ -111,7 +118,8 @@ async function findProfileRow(adminId: number): Promise<ProfileRow> {
   const [rows] = await pool.query<ProfileRow[]>(
     `SELECT u.\`id\`, u.\`username\`, u.\`department_id\`, d.\`name\` AS \`department_name\`,
             u.\`nickname\`, u.\`avatar\`, u.\`email\`, u.\`mobile\`, u.\`motto\`, u.\`gender\`,
-            u.\`status\`, u.\`password\`, u.\`last_login_time\`, u.\`last_login_ip\`, u.\`create_time\`
+            u.\`status\`, u.\`password\`, u.\`last_login_time\`, u.\`last_login_ip\`, u.\`create_time\`,
+            u.\`must_change_password\`
        FROM \`user\` u
        LEFT JOIN \`department\` d ON d.\`id\` = u.\`department_id\`
       WHERE u.\`id\` = ?
@@ -164,6 +172,7 @@ export async function getSelfProfile(adminId: number): Promise<SelfProfile> {
       password: Boolean(row.password),
     },
     thirdParty: { qq: false, wechat: false },
+    mustChangePassword: Number(row.must_change_password ?? 0) === 1,
   };
 }
 
@@ -212,6 +221,10 @@ export async function updateSelfContact(
  * 当前这条会话保留 —— 用户刚在这个浏览器里操作，把他自己也踢出去只会被当成
  * 改密失败。清的是同 user_id 的其他 session_id（access + refresh 一起清），
  * 所以对方既调不动接口，也续不了期。
+ *
+ * ★ 这里是「初始口令」流程的出口，所以强度校验不能省：
+ *   如果允许把初始口令改成 `123456`，那前面那套随机口令 + 强制改密就全白做了。
+ *   顺带把 `must_change_password` 清零 —— 守卫按它放行其它接口。
  */
 export async function changeSelfPassword(
   adminId: number,
@@ -220,20 +233,26 @@ export async function changeSelfPassword(
   const oldPassword = typeof input.oldPassword === 'string' ? input.oldPassword : '';
   const newPassword = typeof input.newPassword === 'string' ? input.newPassword : '';
 
-  if (newPassword.length < PASSWORD_MIN_LENGTH) {
-    throw new ApiError(`新密码至少 ${PASSWORD_MIN_LENGTH} 位`);
-  }
   if (oldPassword && newPassword === oldPassword) {
     throw new ApiError('新密码不能与当前密码相同');
   }
 
-  await assertOwnPassword(adminId, oldPassword);
+  // 一次查询同时拿到旧密码哈希与账号名：账号名用于「密码里不能含账号名」。
+  const row = await findProfileRow(adminId);
+  if (!oldPassword) throw new ApiError('请输入当前登录密码');
+  if (!(await verifyPassword(oldPassword, row.password))) throw new ApiError('当前密码不正确');
+
+  const reason = checkPasswordStrength(newPassword, { username: row.username });
+  if (reason) throw new ApiError(`新密码不符合要求：${reason}`);
 
   const pool = getPool();
   await pool.query(
-    'UPDATE `user` SET `password` = ?, `login_failure` = 0, `update_time` = ? WHERE `id` = ?',
+    'UPDATE `user` SET `password` = ?, `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ?',
     [await hashPassword(newPassword), nowSeconds(), adminId],
   );
+
+  // 初始口令已经作废：磁盘上那份明文副本没有继续存在的理由。
+  await removeInitialPasswordFile();
 }
 
 /**

@@ -866,8 +866,10 @@ export async function resetUserPassword(
   assertOperable(context, access);
 
   const pool = getPool();
+  // 这串密码是**管理员设定并转达**的，等于已经过了一次别人的手/聊天窗口，
+  // 因此标记「下次登录必须改密」：管理员的方便不能以长期共享凭据为代价。
   const [result] = await pool.query<ResultSetHeader>(
-    'UPDATE `user` SET `password`=?,`login_failure`=0,`update_time`=? WHERE `id`=?',
+    'UPDATE `user` SET `password`=?,`login_failure`=0,`must_change_password`=1,`update_time`=? WHERE `id`=?',
     [await hashPassword(password), nowSeconds(), id],
   );
   if (result.affectedRows === 0) throw new ApiError('账号不存在');

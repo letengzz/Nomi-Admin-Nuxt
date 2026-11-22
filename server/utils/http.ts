@@ -19,6 +19,14 @@ export const BusinessCode = {
   TOKEN_EXPIRED: 409,
   NO_PERMISSION: 401,
   REDIRECT: 302,
+  /**
+   * 必须先修改初始密码。
+   *
+   * 单独一个业务码而不是 NO_PERMISSION：前端要据此把用户**带到改密页**，
+   * 而不是弹一句「没有权限」然后什么都不发生。语义取自 HTTP 428
+   * （Precondition Required）：请求本身合法，只是还缺一个前提动作。
+   */
+  NEED_PASSWORD_CHANGE: 428,
 } as const;
 
 export type BusinessCodeValue = (typeof BusinessCode)[keyof typeof BusinessCode];

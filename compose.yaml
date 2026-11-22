@@ -68,8 +68,17 @@ services:
       # 上传落在命名卷里。镜像内的 /app 归 root、进程是 node(1000)，
       # 所以用卷而不是 bind mount —— 后者要自己 chown 1000:1000。
       NOMI_UPLOAD_DIR: /app/data/uploads
+      # 初始超管口令。留空 = 启动时随机生成 24 位，写入 /app/data/initial-admin-password.txt（600）。
+      # 生产建议显式配置（≥16 位 + 三类字符）：省掉「进容器翻文件」这一步，
+      # 也让口令不依赖容器的可写层。
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      # 演示账号默认不建（NODE_ENV=production）；要一套演示数据时在 .env 里置 1。
+      SEED_DEMO_ACCOUNTS: ${SEED_DEMO_ACCOUNTS:-0}
     volumes:
       - uploads:/app/data/uploads
+      # 初始口令文件只在「首次建库」那一次生成，必须跟着容器走：
+      # 只挂 uploads 的话，重建容器后文件没了，库里的口令就再也拿不到。
+      - app_data:/app/data
     depends_on:
       mysql:
         condition: service_healthy
@@ -108,3 +117,5 @@ volumes:
   mysql_data:
   # 站点 logo、公告配图等运行时上传的文件
   uploads:
+  # /app/data：目前只放初始管理员口令文件，保留是为了「重建容器还能拿到那串密码」
+  app_data:

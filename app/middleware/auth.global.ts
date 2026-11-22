@@ -39,6 +39,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
     if (!ready) return navigateTo('/login');
   }
 
+  // 初始口令未改：只放行个人中心（改密入口）。
+  // 必须放在「未授权页面」判断之前：一个没被授予 `system/profile` 的角色，
+  // 会被下面那条规则弹回首页，而首页的接口全是 428 —— 等于永远改不了密码。
+  if (permission.adminInfo?.mustChangePassword) {
+    const localePath = useLocalePath();
+    if (path === '/admin/profile') return;
+    return navigateTo(localePath('/admin/profile'));
+  }
+
   // 维护模式：普通用户只看维护页。配置用 useState 缓存一次，避免每次切页都打接口；
   // 服务端 defineAdminHandler 也有一道同样的闸，这里只负责把人送到提示页。
   const access = useState<LoginConfig | null>('nomi-access-config', () => null);
