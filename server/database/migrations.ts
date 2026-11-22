@@ -16,6 +16,7 @@
  */
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { verifyPassword } from '../utils/auth/password';
+import { richHtmlLooksDangerous, sanitizeRichHtml } from '../utils/rich-html';
 import { LANGUAGE_ENTRY_SEEDS } from './language-seed';
 import { SEED_ADMINS, SEED_USERS, defaultConfigRows } from './seed';
 
@@ -1033,6 +1034,8 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-22-sync-password-policy-entries', run: syncLanguageSeedEntries },
   // 找回密码支持「用户名或邮箱」+ 邮件配置自检按钮：同步新词条。
   { name: '2026-11-22-sync-password-reset-mail-entries', run: syncLanguageSeedEntries },
+  // 公告富文本 XSS：存量正文按白名单重写（只改含危险结构的行）。
+  { name: '2026-11-22-sanitize-announcement-html', run: sanitizeAnnouncementContent },
 ];
 
 /**
@@ -1119,6 +1122,44 @@ async function addNoticeModule(pool: Pool): Promise<void> {
  *
  * 只标记、不重置：改别人的密码属于数据变更，交给人（登录后改密）来做。
  */
+/**
+ * 存量公告正文按白名单重写一遍。
+ *
+ * 为什么要动历史数据：净化只在「写入时」生效，库里已经躺着的 `<svg/onload>` 不会因为
+ * 代码改了而消失 —— 打开那条公告的人照样中招。审计时提交的载荷已经手工删掉，
+ * 但别人的库不一定。
+ *
+ * 判定用 `richHtmlLooksDangerous`（净化前后字符串是否相同）：相同说明本来就干净，
+ * 一条 UPDATE 都不发；不同才回写。上线后第一次启动会把受影响的公告数打到日志里，
+ * 运维据此确认「有没有被打过」。
+ */
+async function sanitizeAnnouncementContent(pool: Pool): Promise<void> {
+  if (!(await tableExists(pool, 'announcement'))) return;
+
+  interface NoticeRow extends RowDataPacket {
+    id: number;
+    content: string | null;
+  }
+
+  const [rows] = await pool.query<NoticeRow[]>('SELECT `id`,`content` FROM `announcement`');
+  const repaired: number[] = [];
+  for (const row of rows) {
+    const raw = row.content ?? '';
+    if (!richHtmlLooksDangerous(raw)) continue;
+    await pool.query('UPDATE `announcement` SET `content` = ? WHERE `id` = ?', [
+      sanitizeRichHtml(raw),
+      row.id,
+    ]);
+    repaired.push(Number(row.id));
+  }
+
+  if (repaired.length > 0) {
+    console.warn(
+      `[security] 以下公告正文含会被浏览器执行的标记，已按白名单重写：#${repaired.join(', #')}`,
+    );
+  }
+}
+
 async function hardenSeededCredentials(pool: Pool): Promise<void> {
   if (!(await hasColumn(pool, 'user', 'must_change_password'))) {
     await pool.query(

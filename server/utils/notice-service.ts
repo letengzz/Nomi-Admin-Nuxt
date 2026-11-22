@@ -21,6 +21,8 @@ import { getPool } from '../database/pool';
 import { ApiError } from './http';
 import { collectDepartmentIds, type DepartmentScopeNode } from './auth/department-scope';
 import type { AdminContext } from './auth/rbac';
+import { sanitizeRichHtml } from './rich-html';
+import { RICH_HTML_MAX_LENGTH } from '../../shared/constants/rich-html';
 
 // --- 枚举（与前端、i18n 保持同一套值） ---------------------------------------
 
@@ -112,22 +114,14 @@ export function parseScopeIds(raw: unknown): number[] {
 }
 
 /**
- * 公告正文的纵深防御净化：wangEditor 输出的是白名单 HTML，但接口可被直接调用，
- * 存储前再削掉脚本、事件属性与 javascript: 链接，避免详情页 v-html 引入 XSS。
- * 纯函数、不依赖 DOM，便于不连库单测；编辑器正常产出的标签/样式不会被误伤。
+ * 公告正文净化：转发到白名单实现（`server/utils/rich-html.ts`）。
+ *
+ * 这里曾经是四条黑名单正则（`<script>` / `on*=` / `javascript:`），
+ * 已被证明可绕过（`<svg/onload=>`、`javas&#99;ript:`）。保留这个导出名有两个原因：
+ * ① 调用点与单测不必跟着改名；② 「公告正文要净化」这件事在 service 里仍然一眼可见。
  */
 export function sanitizeNoticeHtml(raw: string): string {
-  if (!raw) return '';
-  const dropped = '(?:script|style|iframe|object|embed|form|link|meta)';
-  return raw
-    .replace(new RegExp(`<\\s*${dropped}\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*${dropped}\\s*>`, 'gi'), '')
-    .replace(new RegExp(`<\\s*${dropped}\\b[^>]*\\/?>`, 'gi'), '')
-    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(
-      /(href|src|action|formaction)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]*)/gi,
-      '$1="#"',
-    )
-    .trim();
+  return sanitizeRichHtml(raw);
 }
 
 /** HTML 正文转纯文本摘要：通知抽屉只展示文字，不把标签原样吐给用户。 */
@@ -150,7 +144,13 @@ export function normalizeNoticeInput(raw: unknown): NoticeInput {
   if (!title) throw new ApiError('公告标题不能为空');
   if (title.length > 200) throw new ApiError('公告标题不能超过 200 字');
 
-  const content = sanitizeNoticeHtml(typeof body.content === 'string' ? body.content : '');
+  // 长度先卡住再净化：净化器要解析整段 HTML，无上限时一个几 MB 的畸形正文
+  // 能把单线程算到超时（ReDoS 的现实版本）。这个上限远高于正常公告。
+  const rawContent = typeof body.content === 'string' ? body.content : '';
+  if (rawContent.length > RICH_HTML_MAX_LENGTH) {
+    throw new ApiError(`公告内容过长（上限 ${RICH_HTML_MAX_LENGTH / 10_000} 万字）`);
+  }
+  const content = sanitizeNoticeHtml(rawContent);
   if (!content) throw new ApiError('公告内容不能为空');
 
   const notifyScope = oneOf(body.notifyScope, NOTICE_SCOPES, 'all');

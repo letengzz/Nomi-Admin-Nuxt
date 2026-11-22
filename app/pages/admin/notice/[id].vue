@@ -3,8 +3,12 @@
  * 通知中心详情：铃铛里点某条公告的标题进来，看这条消息的完整正文。
  *
  * 数据来自 GET /api/notices/:id —— 服务端已按登录上下文校验「已发布 + 启用 +
- * 在通知范围内」，越权的 id 只会拿到「公告不存在」。正文是可信来源产出的 HTML
- * （入库前经 sanitizeNoticeHtml 净化），这里用 v-html 渲染并用 scoped 样式约束排版。
+ * 在通知范围内」，越权的 id 只会拿到「公告不存在」。
+ *
+ * 正文是富文本 HTML：入库时服务端已按白名单净化（server/utils/rich-html.ts），
+ * 渲染前再用 DOMPurify 过一遍（app/utils/safe-html.ts）—— 两层用同一份标签清单。
+ * 前端这层不是「重复劳动」：它用的是浏览器自己的解析器，能校掉服务端解析与浏览器解析
+ * 之间的分歧（mXSS 就活在这个缝隙里）。
  *
  * definePageMeta 不写 pageFill：详情页跟随默认滚动容器；activePath 指向公告管理，
  * 让侧栏高亮它所属的菜单而不是一个不存在的详情路由。
@@ -15,6 +19,7 @@ import NomiIcon from '../../../components/layout/NomiIcon.vue';
 import { fetchNoticeById } from '../../../services/permission';
 import type { NoticeCategory, NoticeItem } from '../../../types/permission';
 import { formatDateTime } from '../../../utils/format';
+import { safeRichHtml } from '../../../utils/safe-html';
 
 definePageMeta({ layout: 'admin', keepalive: false, activePath: '/admin/system/notices' });
 defineOptions({ name: 'NomiAdminNoticeDetail' });
@@ -26,6 +31,9 @@ const route = useRoute();
 const notice = ref<NoticeItem | null>(null);
 const loading = ref(true);
 const error = ref('');
+
+/** 净化后的正文：模板只认这个变量，避免有人回头直接绑 notice.content。 */
+const safeContent = computed(() => safeRichHtml(notice.value?.content ?? ''));
 
 const categoryLabel = computed(() => {
   if (!notice.value) return '';
@@ -85,9 +93,9 @@ void load();
             </span>
           </div>
         </header>
-        <!-- 正文已在服务端净化；deep 样式把富文本排版约束在卡片内。 -->
+        <!-- 正文经服务端白名单 + 前端 DOMPurify 双层净化；deep 样式把排版约束在卡片内。 -->
         <!-- eslint-disable-next-line vue/no-v-html -->
-        <article class="notice-detail-body" v-html="notice.content" />
+        <article class="notice-detail-body" v-html="safeContent" />
       </template>
 
       <div v-else-if="!loading" class="notice-detail-empty">
