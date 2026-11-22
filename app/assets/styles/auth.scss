@@ -49,6 +49,26 @@
   padding: 40px 0;
 }
 
+// 登录页字段少（已移除部门选择），内容高度小于 650px 外壳的内容区，
+// 默认从顶部排布会贴顶、底部留白过大。让「标题 → 注册入口」整块在盒内
+// 垂直居中，上下留白自然均衡。注册页 / 忘记密码页字段多且可滚动，不套用
+// 此规则——flex 居中在内容超高时会把顶部顶出可视区且无法通过滚动找回。
+.auth-form--login {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+// 注册页同样垂直居中。与登录页的区别：注册字段多、外壳可滚动
+// （.auth-wrap--register 是 overflow:hidden auto），若内容超高，普通 center
+// 会把顶部顶出可视区且滚不回来；safe center 在空间不足时自动退回顶部对齐，
+// 既不裁切也能滚动，空间充足时视觉上与登录页一致。
+.auth-form--register {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+}
+
 .auth-title {
   margin: 0;
   font-size: 36px;

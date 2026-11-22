@@ -176,7 +176,7 @@ onMounted(async () => {
       <NomiAuthTopBar />
 
       <div class="auth-wrap">
-        <div class="auth-form">
+        <div class="auth-form auth-form--login">
           <h1 class="auth-title">{{ t('login.title') }}</h1>
           <p class="auth-subtitle">{{ t('login.subTitle') }}</p>
 

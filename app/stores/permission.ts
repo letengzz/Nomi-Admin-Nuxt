@@ -60,11 +60,14 @@ export const usePermissionStore = defineStore('permission', () => {
   /**
    * 拉取初始化数据。返回 false 表示「没有有效登录态」，调用方负责跳登录页。
    * 并发调用合并成一次请求：布局挂载与路由守卫可能同时触发。
+   *
+   * force=true 用于权限刚变更的场景（如改了自己的角色授权）：跳过 loaded 短路
+   * 重新拉一次，让菜单 / 按钮 / authNames 立刻跟上服务端的最新授权。
    */
   let inflight: Promise<boolean> | null = null;
 
-  async function bootstrap(): Promise<boolean> {
-    if (loaded.value) return true;
+  async function bootstrap(force = false): Promise<boolean> {
+    if (loaded.value && !force) return true;
     if (inflight) return inflight;
 
     loading.value = true;
@@ -80,6 +83,11 @@ export const usePermissionStore = defineStore('permission', () => {
       });
 
     return inflight;
+  }
+
+  /** 强制刷新权限上下文。保留 loaded=true，避免刷新期间路由守卫重复触发。 */
+  function refresh(): Promise<boolean> {
+    return bootstrap(true);
   }
 
   /** 当前页面是否允许某个动作，如 auth('/admin/system/permissions', 'add')。 */
@@ -103,6 +111,9 @@ export const usePermissionStore = defineStore('permission', () => {
     menus.value = [];
     authNode.value = {};
     authNames.value = [];
+    // 菜单是权限的下游：清空权限也要清空菜单，否则换账号 / token 过期时
+    // 侧栏会残留上一人的树（menu store 基线是全量静态菜单，不清更危险）。
+    useMenuStore().setMenuList([]);
   }
 
   return {
@@ -117,6 +128,7 @@ export const usePermissionStore = defineStore('permission', () => {
     homePath,
     apply,
     bootstrap,
+    refresh,
     auth,
     can,
     reset,

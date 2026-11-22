@@ -50,7 +50,7 @@ definePageMeta({ layout: 'admin', pageFill: true });
 defineOptions({ name: 'NomiAdminRoles' });
 
 const { t } = useI18n();
-const { auth, isSuper } = usePermission();
+const { auth, isSuper, permission } = usePermission();
 const { wrapRef: usersWrap, tableHeight: usersTableHeight } = useFillTable();
 const { isMobile, isNarrow } = useMobileLayout();
 useHead({ title: computed(() => t('auth.role.title')) });
@@ -395,6 +395,20 @@ async function submit(): Promise<void> {
   }
 }
 
+/**
+ * 改的权限是否影响当前登录人。
+ *
+ * 自己的角色被改了（或自己是超管、能看到全局），侧栏菜单 / 按钮权限必须立刻跟上，
+ * 否则会出现「刚取消的菜单还在」「刚禁用的按钮还能点」——服务端已经是正确的，
+ * 旧的只是前端没重拉的权限快照。
+ */
+async function refreshIfSelfAffected(roleId: number): Promise<void> {
+  const mine = permission.adminInfo?.roles ?? [];
+  if (permission.isSuper || mine.some((role) => role.id === roleId)) {
+    await permission.refresh();
+  }
+}
+
 /** 右侧「保存权限」：只提交授权，不动名称/编码/状态。 */
 async function saveRules(): Promise<void> {
   const role = selected.value;
@@ -410,6 +424,7 @@ async function saveRules(): Promise<void> {
       rules: collectRules(),
     });
     ElMessage.success(t('auth.common.success'));
+    await refreshIfSelfAffected(role.id);
     await load();
   } catch (error) {
     ElMessage.error((error as Error).message);

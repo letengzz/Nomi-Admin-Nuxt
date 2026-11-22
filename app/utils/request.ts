@@ -10,6 +10,7 @@
  */
 import type { ApiEnvelope } from '../types/permission';
 import { useUserStore } from '../stores/user';
+import { usePermissionStore } from '../stores/permission';
 import { callApi } from './api';
 
 export class ApiRequestError extends Error {
@@ -62,6 +63,9 @@ function redirectToLogin(): void {
   if (!import.meta.client) return;
   const user = useUserStore();
   user.logOut();
+  // 权限也必须跟着清：否则下一个账号登录前，loaded 仍为 true，
+  // 会复用上一个账号的菜单 / 按钮权限（token 过期不等于整页刷新）。
+  usePermissionStore().reset();
   const current = window.location.pathname + window.location.search;
   const target =
     current && current !== '/login' ? `/login?redirect=${encodeURIComponent(current)}` : '/login';
