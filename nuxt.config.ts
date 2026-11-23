@@ -211,11 +211,15 @@ export default defineNuxtConfig({
   // 省掉每个请求的实时压缩。只作用于 public/ 与预渲染产物，不碰 server 代码。
   nitro: {
     compressPublicAssets: { gzip: true, brotli: true },
-    // xlsx 是 CJS 包，内部用 require('./dist/cpexcel.js') 加载码表。
+    // xlsx 0.18.5 是 CJS 包，内部用 require('./dist/cpexcel.js') 加载码表。
     // 一旦被当成外部依赖（externals）放过，Nitro 会把那条 require 改写成
     // `import ... from 'F:\\...\\cpexcel.js'` 这种绝对路径裸标识符，Node 的 ESM
     // loader 会直接抛 "Received protocol 'f:'"，整个服务端 500。
     // 内联进 bundle 由 rollup 的 commonjs 插件处理，就不会出现裸 Windows 路径。
+    //
+    // 0.20.3 起官方提供了真正的 ESM 入口（xlsx.mjs），码表已内联、不再 require
+    // cpexcel，这条 workaround 理论上可以撤掉；但「不依赖外部解析器在运行时的
+    // 文件布局」这件事本身更稳，保持内联不变（换来的是启动期少一次动态解析）。
     externals: { inline: ['xlsx'] },
     // 演示构建为每个后台页面预渲染一份 HTML 壳（见文件顶部的 DEMO_PRERENDER_ROUTES）。
     // 正式构建保持空数组：真实部署由 Nitro 自己应答路由，不需要预生成。

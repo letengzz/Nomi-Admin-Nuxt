@@ -51,6 +51,12 @@ pnpm install
 pnpm dev
 ```
 
+> **安装需要访问 `cdn.sheetjs.com`。** `xlsx` 在 npm 上停在 0.18.5（含两个高危漏洞），
+> 修复版本只在 SheetJS 自有源站发布，因此依赖写成
+> `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`，`pnpm-lock.yaml` 里已钉住 `integrity`。
+> 内网构建可先在有网环境 `pnpm fetch` 预热 store，或把 tarball 落到制品库后改为
+> `file:./vendor/xlsx-0.20.3.tgz`；**不要**改回 npm 版本。
+
 访问：
 
 - 应用首页：<http://localhost:3000>

@@ -27,11 +27,22 @@ import { hashPassword, PASSWORD_MIN_LENGTH } from './password';
 import { inspectUsersForImport, type Gender, type UserExportRow } from './user-service';
 import { nowSeconds, TOKEN_TYPE_ADMIN, TOKEN_TYPE_ADMIN_REFRESH } from './token';
 import type { AdminContext } from './rbac';
+import { assertSpreadsheetReadable, clampCellText } from '../spreadsheet-guard';
 
 /** 一次最多导入的行数：再多就该走「数据迁移」，而不是在浏览器里点一下。 */
 export const MAX_IMPORT_ROWS = 500;
 /** 文件大小上限，和 Nginx 默认的 1MB 相比留足余量，又不至于让解析占满内存。 */
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+/** 列数上限：模板只有 9 列，留到 64 列给「自己加了备注列」的人。 */
+export const MAX_IMPORT_COLUMNS = 64;
+/**
+ * 交给解析器的行数上限。
+ *
+ * 比 `MAX_IMPORT_ROWS` 多留一截，是为了**还能检测出「行数超了」**：
+ * 解析器只读前这么多行，读满了我们才能判断「不止这些」，从而给出明确报错；
+ * 如果正好卡在 500，超一行的文件会读成「刚好 500 行」而被静默截断。
+ */
+const PARSE_ROW_LIMIT = MAX_IMPORT_ROWS + 20;
 
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 20;
@@ -217,23 +228,42 @@ const PREVIEW_LIMIT = 100;
 
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'string') return clampCellText(value.trim());
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).trim();
+  return clampCellText(String(value).trim());
 }
 
 /**
  * 读第一张工作表 → 行数组。
  *
+ * 顺序上先过「网络边界」再过「解析器」：容器认不出来（不是 ZIP / OLE2）或解压后
+ * 大得离谱的文件，在这里就被挡掉，解析器只处理结构合理、规模有界的输入。
+ * 解析器本身是第三方代码，我们没法保证它面对任意字节都体面 ——
+ * 能做的是不让它见到那些字节。
+ *
  * `raw: false` 让单元格走「显示值」：手机号存成数字时不会变成 1.38E+10，
  * 日期也不会变成一个序号。代价是格式化的开销，对几百行可以忽略。
  */
 export function parseUserImportFile(buffer: Buffer): ImportRawRow[] {
+  assertSpreadsheetReadable(buffer);
+
   let workbook: XLSX.WorkBook;
   try {
-    workbook = XLSX.read(buffer, { type: 'buffer' });
+    workbook = XLSX.read(buffer, {
+      type: 'buffer',
+      // 只解析第一张表：工作簿里的其它表对导入没有意义，越少解析越少暴露面。
+      sheets: 0,
+      // 行数封顶：几十万行的表格不会整本读进内存。
+      sheetRows: PARSE_ROW_LIMIT,
+      // 下面这些都是「用不到就不解析」的开关：公式不求值、单元格 HTML 不生成、
+      // 样式与 VBA 工程不装载。少解析一类结构，就少一类结构上的开销与隐患。
+      cellFormula: false,
+      cellHTML: false,
+      cellStyles: false,
+      bookVBA: false,
+    });
   } catch {
     throw new ApiError('文件解析失败，请确认是有效的 Excel 文件');
   }
@@ -243,6 +273,12 @@ export function parseUserImportFile(buffer: Buffer): ImportRawRow[] {
   if (!sheet || !sheet['!ref']) throw new ApiError('文件里没有可读取的数据');
 
   const range = XLSX.utils.decode_range(sheet['!ref']);
+  // `!ref` 是可以被随手写成 `A1:XFD1048576` 的，而 `sheet_to_json` 会按这个矩形
+  // 铺满数组 —— 先按列宽拦一道，比事后看内存曲线便宜得多。
+  const width = range.e.c - range.s.c + 1;
+  if (width > MAX_IMPORT_COLUMNS) {
+    throw new ApiError(`表格列数过多（${width} 列），请只保留模板中的列后再导入`);
+  }
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     raw: false,
