@@ -7,6 +7,7 @@ import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
   REMEMBERED_ACCOUNT_KEY,
+  REMEMBERED_PASSWORD_KEY,
   REMEMBER_LOGIN_KEY,
 } from '../app/constants/auth';
 import { buildPrimaryVars, mixColor, THEME_COLORS } from '../app/utils/theme';
@@ -93,27 +94,45 @@ describe('记住密码偏好', () => {
   afterEach(() => {
     localStorage.removeItem(REMEMBER_LOGIN_KEY);
     localStorage.removeItem(REMEMBERED_ACCOUNT_KEY);
+    localStorage.removeItem(REMEMBERED_PASSWORD_KEY);
   });
 
-  it('首次访问默认勾选，但没有账号可回填', () => {
-    expect(readRememberLogin()).toEqual({ remember: true, account: '' });
+  it('首次访问默认勾选，但没有账号密码可回填', () => {
+    expect(readRememberLogin()).toEqual({ remember: true, account: '', password: '' });
   });
 
-  it('勾选时保存账号，读回来仍为勾选', () => {
-    saveRememberLogin('nomi', true);
-    expect(readRememberLogin()).toEqual({ remember: true, account: 'nomi' });
+  it('勾选时保存账号与密码，读回来原样回填', () => {
+    saveRememberLogin('nomi', true, 'p@ss中文"引号');
+    expect(readRememberLogin()).toEqual({
+      remember: true,
+      account: 'nomi',
+      password: 'p@ss中文"引号',
+    });
   });
 
-  it('取消勾选会清掉账号，并记住「不勾选」这个状态', () => {
-    saveRememberLogin('nomi', true);
-    saveRememberLogin('nomi', false);
+  it('密码不裸明文落盘', () => {
+    saveRememberLogin('nomi', true, 'plain-secret');
+    expect(localStorage.getItem(REMEMBERED_PASSWORD_KEY)).not.toBe('plain-secret');
+    expect(localStorage.getItem(REMEMBERED_PASSWORD_KEY)).not.toContain('plain-secret');
+  });
+
+  it('取消勾选会清掉账号与密码，并记住「不勾选」这个状态', () => {
+    saveRememberLogin('nomi', true, 'secret');
+    saveRememberLogin('nomi', false, 'secret');
 
     expect(localStorage.getItem(REMEMBERED_ACCOUNT_KEY)).toBeNull();
-    expect(readRememberLogin()).toEqual({ remember: false, account: '' });
+    expect(localStorage.getItem(REMEMBERED_PASSWORD_KEY)).toBeNull();
+    expect(readRememberLogin()).toEqual({ remember: false, account: '', password: '' });
   });
 
-  it('兼容老版本只存了账号、没有勾选键的情况', () => {
+  it('兼容老版本只存了账号、没有勾选键和密码键的情况', () => {
     localStorage.setItem(REMEMBERED_ACCOUNT_KEY, 'legacy');
-    expect(readRememberLogin()).toEqual({ remember: true, account: 'legacy' });
+    expect(readRememberLogin()).toEqual({ remember: true, account: 'legacy', password: '' });
+  });
+
+  it('被改坏的密码编码回填为空串，不影响账号与勾选状态', () => {
+    saveRememberLogin('nomi', true, 'secret');
+    localStorage.setItem(REMEMBERED_PASSWORD_KEY, '!!!not-base64!!!');
+    expect(readRememberLogin()).toEqual({ remember: true, account: 'nomi', password: '' });
   });
 });

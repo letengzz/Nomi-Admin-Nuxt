@@ -851,6 +851,7 @@ export const LANGUAGE_ENTRY_SEEDS: readonly LanguageEntrySeed[] = [
   { key: 'monitor.location.lan', module: 'monitor', zh: '局域网', en: 'Local network' },
   { key: 'monitor.location.linkLocal', module: 'monitor', zh: '链路本地', en: 'Link-local' },
   { key: 'monitor.location.loopback', module: 'monitor', zh: '本地回环', en: 'Localhost' },
+  { key: 'monitor.location.public', module: 'monitor', zh: '公网 IP', en: 'Public IP' },
   { key: 'monitor.location.reserved', module: 'monitor', zh: '保留地址', en: 'Reserved' },
   { key: 'monitor.location.unknown', module: 'monitor', zh: '未知地点', en: 'Unknown location' },
   { key: 'monitor.loginLog.behavior', module: 'monitor', zh: '登录行为', en: 'Behavior' },

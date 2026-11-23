@@ -1036,6 +1036,8 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-22-sync-password-reset-mail-entries', run: syncLanguageSeedEntries },
   // 公告富文本 XSS：存量正文按白名单重写（只改含危险结构的行）。
   { name: '2026-11-22-sanitize-announcement-html', run: sanitizeAnnouncementContent },
+  // 公网 IP 归属地兜底文案：同步 monitor.location.public，语言管理里才能翻译。
+  { name: '2026-11-23-sync-ip-location-public-entry', run: syncLanguageSeedEntries },
 ];
 
 /**

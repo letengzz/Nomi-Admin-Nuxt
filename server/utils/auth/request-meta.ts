@@ -5,8 +5,9 @@
  *   1. UA 解析 —— 只取「浏览器 + 版本 / 终端系统」，用有序正则足够覆盖
  *      主流浏览器；把完整 UA 也留着，细节可以在日志详情里看。
  *   2. IP 归属 —— 内网/保留段本地就能判定，且返回的是 i18n 词条键，
- *      中英文界面各自翻译；公网 IP 需要 GeoIP 库，项目允许通过
- *      `IP_LOCATION_API`（用 {ip} 占位）接任意归属地服务，没配就留空。
+ *      中英文界面各自翻译；公网 IP 可通过 `IP_LOCATION_API`（用 {ip} 占位）
+ *      接任意归属地服务拿真实地名，没配或查询失败则回落「公网 IP」词条，
+ *      不留空白（见 resolveIpLocation）。
  *   3. 请求头脱敏 —— 令牌/Cookie 一律不落库，日志本身不能变成泄密源。
  */
 import { randomUUID } from 'node:crypto';
@@ -14,7 +15,7 @@ import type { H3Event } from 'h3';
 
 export interface RequestMeta {
   ip: string;
-  /** i18n 词条键或真实地名；空串表示「未解析」 */
+  /** i18n 词条键或真实地名；公网查不到时是 monitor.location.public，不会是空串 */
   ipLocation: string;
   browser: string;
   os: string;
@@ -125,25 +126,29 @@ function pickLocation(raw: unknown): string {
 }
 
 /**
- * 解析 IP 归属。没配 `IP_LOCATION_API` 时公网返回空串，界面显示「—」；
- * 内网/本地立刻返回词条键，不产生任何网络请求。
+ * 解析 IP 归属：一律返回可直接展示的内容 —— i18n 词条键（内网/无归属地服务）
+ * 或真实地名（配了 `IP_LOCATION_API` 且查询成功）。
+ *
+ * 内网/本地立刻返回词条键，不产生网络请求；公网在没配服务、服务报错或返回空时，
+ * 回落到 `monitor.location.public`（界面显示「公网 IP」），不再留空 —— 审计列里
+ * 一个「—」既不能定位也容易被误读成「没记录」，明确标「公网 IP」至少说明来源类型。
  */
 export async function resolveIpLocation(raw: string): Promise<string> {
   const local = localIpLabel(raw);
   if (local) return local;
   const ip = normalizeIp(raw);
   const endpoint = process.env.IP_LOCATION_API;
-  if (!ip || !endpoint) return '';
+  if (!ip || !endpoint) return 'monitor.location.public';
   try {
     const response = await fetch(endpoint.replace('{ip}', encodeURIComponent(ip)), {
       signal: AbortSignal.timeout(600),
       headers: { accept: 'application/json' },
     });
-    if (!response.ok) return '';
-    return pickLocation(await response.json());
+    if (!response.ok) return 'monitor.location.public';
+    return pickLocation(await response.json()) || 'monitor.location.public';
   } catch {
-    // 归属地服务不可用不该让登录/写日志失败，静默降级成「—」。
-    return '';
+    // 归属地服务不可用不该让登录/写日志失败，静默降级成「公网 IP」。
+    return 'monitor.location.public';
   }
 }
 

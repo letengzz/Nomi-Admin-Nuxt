@@ -1,0 +1,26 @@
+# 正式环境覆盖配置 —— 必须与 compose.yaml 叠加使用，不要单独 up：
+#
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+#
+# 与测试环境的区别：
+#   测试：docker compose up -d
+#         宿主机 3000 → nginx 容器 80 → app 容器 3000（纯 HTTP）
+#   正式：上面的命令 + 宿主机 nginx（deploy/nginx.prod.conf）
+#         app 只绑 127.0.0.1:3000，容器 nginx 不启动，80/443 + HTTPS 由宿主机处理。
+#
+# 为什么容器 nginx 要停掉：避免双层代理。双层不仅多一跳，还会让 X-Forwarded-For
+# 叠加、X-Forwarded-Proto 被内层覆盖成 http，导致应用生成的链接变成 http://。
+#
+# 证书签发与续期步骤见《部署指南》3.7 节。
+
+services:
+  app:
+    # 只绑宿主机回环地址：外部无法直连，只能经宿主机 nginx 转发。
+    ports:
+      - '127.0.0.1:3000:3000'
+
+  nginx:
+    # 加 profile 即默认不启动（除非显式 --profile prod-internal-nginx）。
+    # compose 的 profiles 会覆盖 base 文件里的默认启动行为。
+    profiles:
+      - prod-internal-nginx

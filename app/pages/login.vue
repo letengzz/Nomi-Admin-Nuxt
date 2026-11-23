@@ -109,9 +109,14 @@ async function handleSubmit(): Promise<void> {
     // 避免「登录了 A，侧边栏还是 B 的菜单」这种要刷新才好使的怪现象。
     usePermissionStore().reset();
 
-    // 记住「账号 + 勾选状态」两个偏好，绝不保存明文密码；
-    // 取消勾选也要落盘，否则刷新后复选框会回到默认勾选，看起来像没生效。
-    saveRememberLogin(formData.userName.trim(), formData.rememberPassword);
+    // 记住「账号 + 密码 + 勾选状态」：勾选时下次打开直接回填，省得再敲一遍。
+    // 密码在 storage-key 里做可逆编码，不落裸明文；取消勾选也要落盘，
+    // 否则刷新后复选框会回到默认勾选，看起来像没生效。
+    saveRememberLogin(
+      formData.userName.trim(),
+      formData.rememberPassword,
+      formData.password,
+    );
 
     // 初始口令未改：后台只放行「改密 + 看自己资料」，直接送到改密入口，
     // 别让用户先进仪表盘、再被一串 428 弹回来。
@@ -171,7 +176,10 @@ onMounted(async () => {
     formData.password = DEMO_PASSWORD;
   }
 
+  // 记住的账号 / 密码优先级高于演示站预填：用户上次用自己的账号登录过，
+  // 再打开就该回到那套凭据，而不是被演示账号的 admin/123456 覆盖。
   if (remembered.account) formData.userName = remembered.account;
+  if (remembered.password) formData.password = remembered.password;
 
   // 文档 18.8：注册成功后带 username 回来，直接预填，省掉用户重新敲一遍。
   const registered = route.query.username;
@@ -207,7 +215,7 @@ onMounted(async () => {
                 v-model.trim="formData.userName"
                 class="auth-control"
                 :placeholder="t('login.placeholder.username')"
-                autocomplete="off"
+                autocomplete="username"
               />
             </ElFormItem>
 
@@ -217,7 +225,7 @@ onMounted(async () => {
                 class="auth-control"
                 type="password"
                 show-password
-                autocomplete="off"
+                autocomplete="current-password"
                 :placeholder="t('login.placeholder.password')"
               />
             </ElFormItem>

@@ -157,7 +157,10 @@ Nomi-Admin-Nuxt/
 │  ├─ integration/                   # 组件、路由与 API 集成测试
 │  └─ app.spec.ts                    # 当前 Pinia Store 示例测试
 ├─ deploy/
-│  └─ nginx.conf                     # Nginx 反向代理、缓存与流式响应配置
+│  ├─ nginx.conf                     # 测试环境：3000 入口的反向代理、缓存与流式响应
+│  └─ nginx.prod.conf                # 正式环境：80/443 + HTTPS（certbot）+ 反向代理
+├─ compose.yaml                      # 测试环境编排（app + MySQL + nginx）
+├─ compose.prod.yaml                 # 正式环境覆盖配置（app 绑本机，容器 nginx 不启动）
 ├─ .github/
 │  └─ workflows/ci-cd.yml            # CI 门禁 + GitHub Pages 静态发布
 ├─ nuxt.config.ts                    # Nuxt 模块、渲染、样式与运行期配置
@@ -295,6 +298,18 @@ pnpm dev               # 首次启动自动建库、建表、写入种子数据
 
 演示账号（`admin`、`user` 及 8 名员工，口令与初始超管相同）**只在非生产环境创建**，
 生产种子只有 `super` 一个账号；从旧版本升级上来的库如果还留着它们，启动日志会告警。
+
+### 记住密码
+
+登录页勾选「记住密码」后，账号与密码会一起保存在本机，下次打开自动回填；
+取消勾选则三者（账号、密码、勾选状态）一并清除。密码在前端做可逆编码（不是加密），
+**仅为避免 localStorage 出现裸明文，不能当作凭据保护**；真正的安全边界是同源策略与 XSS 防护。
+登录框同时开启了 `autocomplete="username"` / `current-password`，浏览器 / 系统密码管理器
+是更推荐的安全路径；服务端另发 refresh token 负责会话续期，与表单回填互不替代。
+
+在线用户 / 系统日志的「登录地点」：内网与本地 IP 自动识别；公网 IP 想显示具体地名，
+配 `IP_LOCATION_API`（`{ip}` 占位）即可，不配则显示「公网 IP」，不会留空。
+经反向代理部署时要传 `X-Forwarded-For`，详见《部署指南》2.5 节。
 
 ### 找回密码与邮件服务
 
@@ -436,16 +451,28 @@ TOKEN_SECRET=***          # node -e "console.log(require('crypto').randomBytes(3
 token 用开发默认密钥的容器。
 
 ```bash
-docker compose up --build -d                  # 应用 :3000 + MySQL
-docker compose --profile proxy up --build -d  # 再加 Nginx :8080 → app:3000
-docker compose logs -f app                    # 看首启建库/灌种子日志
+docker compose up --build -d      # 应用 + MySQL + Nginx，一条命令全起
+docker compose logs -f app        # 看首启建库/灌种子日志
 ```
 
 默认端口：
 
-- Nuxt 应用：`3000`
-- Nginx 代理：`8080`
+- 对外入口：`3000`（Nginx，转发到容器网络内的 app:3000）
+- Nuxt 应用：只在 compose 内网监听 `3000`，不对外暴露
 - 健康检查：`/api/health`
+
+访问 `http://<服务器IP>:3000` 即落到登录页。流量会先过 Nginx，它写入的
+`X-Forwarded-For` 让应用拿到真实客户端 IP —— 登录地点、操作审计都依赖这一点；
+若把 app 端口直接暴露到公网，应用只能看到 Docker 网桥 IP，会被判成「局域网」。
+
+**上面这套是测试环境。正式环境**（域名 + HTTPS）叠加覆盖文件，由宿主机 Nginx 终止 TLS：
+
+```bash
+docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+```
+
+app 只绑 `127.0.0.1:3000`、容器 nginx 不启动，对外走 80/443；证书用 certbot 自动签发与续期。
+配置文件 `deploy/nginx.prod.conf`，完整步骤见《部署指南》3.7 节。
 
 数据持久化在两个命名卷上：`mysql_data`（数据库文件）、`uploads`（站点 logo、公告配图，
 挂到容器内 `/app/data/uploads`）。**`docker compose down -v` 会连这两个卷一起删**，

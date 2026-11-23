@@ -12,7 +12,10 @@ dist
 node_modules
 
 # Logs
-logs
+# 只忽略仓库根目录下的 logs/。裸写 `logs` 会匹配任意层级的同名目录，
+# 把 server/api/admin/logs/ 这类源码目录一并吞掉 —— 后果是接口文件进不了 Git，
+# 线上从仓库 checkout 构建时接口直接 404（本地因为在磁盘上所以正常，很难发现）。
+/logs
 *.log
 
 # Misc

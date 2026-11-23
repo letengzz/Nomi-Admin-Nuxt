@@ -101,7 +101,8 @@ function entryText(raw?: string): string {
 }
 
 function locationText(raw?: string): string {
-  if (!raw) return '—';
+  // 历史日志里可能存着空串（当时没配归属地服务），给明确文案而不是一个破折号。
+  if (!raw) return t('monitor.location.unknown');
   return te(raw) ? t(raw) : raw;
 }
 

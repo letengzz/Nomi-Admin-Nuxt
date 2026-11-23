@@ -16,7 +16,11 @@
  * 这里只做字符串读写，不依赖 Vue / Nuxt，纯 vitest 环境同样可用。
  */
 
-import { REMEMBER_LOGIN_KEY, REMEMBERED_ACCOUNT_KEY } from '../constants/auth';
+import {
+  REMEMBER_LOGIN_KEY,
+  REMEMBERED_ACCOUNT_KEY,
+  REMEMBERED_PASSWORD_KEY,
+} from '../constants/auth';
 
 export const STORAGE_PREFIX = 'nomi';
 
@@ -38,10 +42,41 @@ export function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-/** 登录页「记住密码」的持久化结果：只含账号与勾选状态，绝不含密码。 */
+/** 登录页「记住密码」的持久化结果：账号、密码与勾选状态。 */
 export interface RememberLoginChoice {
   remember: boolean;
   account: string;
+  password: string;
+}
+
+/**
+ * 口令存储用的可逆编码，仅为避免 localStorage 里出现裸明文。
+ *
+ * 明确声明：这不是安全措施。密钥混在前端代码里，任何人拿到同源存储都能还原，
+ * 真正挡住窃取的是同源策略 + XSS 防护；要想交出凭据请依赖浏览器密码管理器
+ * （登录框已开启 autocomplete=current-password）。这里编码的唯一目的是
+ * 「翻 localStorage 时不会一眼看到密码」，并让密码里出现引号 / 换行也安全。
+ */
+const PASSWORD_MASK = 0x5a;
+
+function encodePassword(password: string): string {
+  if (!password) return '';
+  const bytes = new TextEncoder().encode(password);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte ^ PASSWORD_MASK);
+  return btoa(binary);
+}
+
+function decodePassword(encoded: string): string {
+  if (!encoded) return '';
+  try {
+    const binary = atob(encoded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0) ^ PASSWORD_MASK);
+    return new TextDecoder().decode(bytes);
+  } catch {
+    // 老数据 / 被手工改坏的值：宁可回填空密码，也不能让整个登录页崩掉。
+    return '';
+  }
 }
 
 /**
@@ -53,29 +88,42 @@ export interface RememberLoginChoice {
 export function readRememberLogin(
   storage: Storage | undefined = canUseStorage() ? window.localStorage : undefined,
 ): RememberLoginChoice {
-  if (!storage) return { remember: true, account: '' };
+  if (!storage) return { remember: true, account: '', password: '' };
 
   const raw = storage.getItem(REMEMBER_LOGIN_KEY);
   const remember = raw === null ? true : raw === '1';
   if (!remember) {
     storage.removeItem(REMEMBERED_ACCOUNT_KEY);
-    return { remember, account: '' };
+    storage.removeItem(REMEMBERED_PASSWORD_KEY);
+    return { remember, account: '', password: '' };
   }
-  return { remember, account: storage.getItem(REMEMBERED_ACCOUNT_KEY) ?? '' };
+  return {
+    remember,
+    account: storage.getItem(REMEMBERED_ACCOUNT_KEY) ?? '',
+    password: decodePassword(storage.getItem(REMEMBERED_PASSWORD_KEY) ?? ''),
+  };
 }
 
 /**
- * 保存「记住密码」设置。勾选才留账号，不勾选时连残留账号一起清掉。
+ * 保存「记住密码」设置。勾选才留账号与密码，不勾选时连残留值一起清掉。
+ *
+ * 密码走可逆编码，避免裸明文落盘；调用方传的一律是用户刚输入的原文。
  */
 export function saveRememberLogin(
   account: string,
   remember: boolean,
+  password: string = '',
   storage: Storage | undefined = canUseStorage() ? window.localStorage : undefined,
 ): void {
   if (!storage) return;
   storage.setItem(REMEMBER_LOGIN_KEY, remember ? '1' : '0');
-  if (remember) storage.setItem(REMEMBERED_ACCOUNT_KEY, account);
-  else storage.removeItem(REMEMBERED_ACCOUNT_KEY);
+  if (remember) {
+    storage.setItem(REMEMBERED_ACCOUNT_KEY, account);
+    storage.setItem(REMEMBERED_PASSWORD_KEY, encodePassword(password));
+  } else {
+    storage.removeItem(REMEMBERED_ACCOUNT_KEY);
+    storage.removeItem(REMEMBERED_PASSWORD_KEY);
+  }
 }
 
 /**

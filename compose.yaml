@@ -1,4 +1,4 @@
-# 单机起一个可用实例的最小配置：应用 + MySQL（+ 可选 Nginx）。
+# 单机起一个可用实例的最小配置：应用 + MySQL + Nginx（反向代理，默认启用）。
 #
 # 为什么 compose 里不写 `deploy.resources`：那些在 Swarm 之外不生效，
 # 写在单机文件里只会让人以为「已经限制过内存了」。真要限，用 `mem_limit`。
@@ -50,11 +50,13 @@ services:
       dockerfile: Dockerfile
     image: nomi-admin-nuxt:local
     restart: unless-stopped
-    ports:
-      - '3000:3000'
+    # 应用不再直接暴露端口：对外由 nginx 占用 3000，再转发到容器网络内的 app:3000。
+    # 这样访问地址保持不变，但流量必经 nginx，X-Forwarded-For 才能带上真实客户端 IP。
+    # 直连排障时临时加 '127.0.0.1:3001:3000'（不要占用对外的 3000）。
     environment:
       NODE_ENV: production
-      # 只监听容器内网卡 —— 宿主机通过上面的 ports 映射进来，不需要容器对外广播
+      # 监听容器内全部网卡，这样 nginx 才能通过 compose 内网的 app:3000 访问到它。
+      # 容器自身没有对外端口映射，只有 nginx 那层对外。
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: '3000'
       # 连库参数全部显式给：镜像里没有 .env，容器里的 127.0.0.1 也不是宿主机
@@ -74,6 +76,10 @@ services:
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       # 演示账号默认不建（NODE_ENV=production）；要一套演示数据时在 .env 里置 1。
       SEED_DEMO_ACCOUNTS: ${SEED_DEMO_ACCOUNTS:-0}
+      # 公网 IP 归属地查询服务（在线用户 / 系统日志的「登录地点」）。
+      # 用 {ip} 占位，如 http://ip-api.com/json/{ip}?lang=zh-CN；不配则公网显示「公网 IP」。
+      # 内网 IP 不需要它，应用本地即可判定。详见 .env.example 的说明。
+      IP_LOCATION_API: ${IP_LOCATION_API:-}
     volumes:
       - uploads:/app/data/uploads
       # 初始口令文件只在「首次建库」那一次生成，必须跟着容器走：
@@ -96,8 +102,10 @@ services:
       start_period: 30s
     mem_limit: 512m
 
-  # 需要 HTTPS 与静态资源缓存时启用它，并在 DNS/证书侧指向这里的 80/443。
-  # 直接暴露 3000 到公网不是不能跑，但少了压缩、缓存与限流三件事。
+  # 默认启用的反向代理：占用宿主机 3000（对外地址不变），转发到容器网络内的 app:3000。
+  # 之前 app 直连 3000 时应用只能看到 Docker 网桥 IP，登录地点会被判成「局域网」；
+  # 现在流量必经 nginx，它写入的 X-Forwarded-For 让应用拿到真实客户端 IP。
+  # 若外层还有云负载均衡做 TLS 终止，让 LB 把流量转发到本机 3000 即可。
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -105,12 +113,10 @@ services:
       app:
         condition: service_healthy
     ports:
-      - '8080:80'
+      # 宿主机 3000 → nginx 容器 80；app 的 3000 只在 compose 内网可达。
+      - '3000:80'
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    profiles:
-      # 默认不启动：`docker compose --profile proxy up` 才会带上它
-      - proxy
 
 volumes:
   # 数据库文件：`docker compose down -v` 会连它一起删，别对生产库随手加 -v

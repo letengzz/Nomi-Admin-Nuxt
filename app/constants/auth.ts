@@ -15,12 +15,21 @@ export const DEMO_PASSWORD = '123456';
 export const REMEMBERED_ACCOUNT_KEY = 'nomi:last-account';
 
 /**
- * 「记住密码」勾选状态：1 = 记住账号并保持登录，0 = 都不记住。
+ * 「记住密码」要回填密码，所以账号、密码、勾选状态三者一起持久化：
+ * - 账号：REMEMBERED_ACCOUNT_KEY
+ * - 密码：REMEMBERED_PASSWORD_KEY（可逆编码存放，见 storage-key.ts，不是裸明文）
+ * - 勾选状态：本键，1 = 记住，0 = 都不记住
  *
- * 这里刻意不存密码：与 docs/登录页设计参考文档.md 9.5 / 13.7 一致，
- * 真正的「长期登录」由服务端下发的 refresh token 承担。
+ * 产品决策（2026-11）覆盖了 docs/登录页设计参考文档.md 9.5 / 13.7 里
+ * 「不要存密码」的建议：用户明确要求刷新后密码框自动回填。
+ * 安全上的真实边界是同源策略 + XSS 防护；更稳妥的持久凭据应交给浏览器
+ * 原生密码管理器（登录框已开启 autocomplete=username/current-password）。
+ * 服务端 refresh token 仍负责「长期登录」，与本处的表单回填互不替代。
  */
 export const REMEMBER_LOGIN_KEY = 'nomi:remember-login';
+
+/** 记住密码时保存的可逆编码口令；不勾选时与账号一起删除。 */
+export const REMEMBERED_PASSWORD_KEY = 'nomi:last-password';
 
 export interface DemoAccount {
   /** 与 seed 里 department 的 id 对齐：1 总经办 / 2 技术中心 / 8 市场运营中心 */
