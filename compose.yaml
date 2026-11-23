@@ -80,6 +80,8 @@ services:
       # 用 {ip} 占位，如 http://ip-api.com/json/{ip}?lang=zh-CN；不配则公网显示「公网 IP」。
       # 内网 IP 不需要它，应用本地即可判定。详见 .env.example 的说明。
       IP_LOCATION_API: ${IP_LOCATION_API:-}
+      # 归属地查询超时（毫秒），默认 2500；不配就用默认值
+      IP_LOCATION_TIMEOUT: ${IP_LOCATION_TIMEOUT:-}
     volumes:
       - uploads:/app/data/uploads
       # 初始口令文件只在「首次建库」那一次生成，必须跟着容器走：

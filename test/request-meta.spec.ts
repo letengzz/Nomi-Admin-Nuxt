@@ -5,11 +5,18 @@
  * 并逐个恢复 process.env.IP_LOCATION_API —— 测试之间不能互相污染环境变量。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { localIpLabel, normalizeIp, parseUserAgent, resolveIpLocation } from '../server/utils/auth/request-meta';
+import {
+  clearIpLocationCache,
+  localIpLabel,
+  normalizeIp,
+  parseUserAgent,
+  resolveIpLocation,
+} from '../server/utils/auth/request-meta';
 
 const ORIGINAL_ENDPOINT = process.env.IP_LOCATION_API;
 
 afterEach(() => {
+  clearIpLocationCache();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   if (ORIGINAL_ENDPOINT === undefined) delete process.env.IP_LOCATION_API;
@@ -69,6 +76,15 @@ describe('resolveIpLocation', () => {
     expect(await resolveIpLocation('1.2.3.4')).toBe('中国 广东 深圳');
   });
 
+  it('ip-api.com 格式：regionName 优先于 region 缩写，不显示「法国 IDF 巴黎」', async () => {
+    vi.stubEnv('IP_LOCATION_API', 'http://ip-api.com/json/{ip}?lang=zh-CN');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ country: '法国', region: 'IDF', regionName: '法兰西岛', city: '巴黎' }),
+    }));
+    expect(await resolveIpLocation('46.202.129.79')).toBe('法国 法兰西岛 巴黎');
+  });
+
   it('服务返回空对象 → 仍回落到公网 IP 词条', async () => {
     vi.stubEnv('IP_LOCATION_API', 'http://geo.test/{ip}');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
@@ -82,5 +98,46 @@ describe('resolveIpLocation', () => {
 
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
     expect(await resolveIpLocation('1.2.3.4')).toBe('monitor.location.public');
+  });
+
+  it('查到的真实地名会缓存：同一 IP 只打一次外部服务', async () => {
+    vi.stubEnv('IP_LOCATION_API', 'http://geo.test/{ip}');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ country: '中国', city: '深圳' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await resolveIpLocation('8.8.8.8')).toBe('中国 深圳');
+    expect(await resolveIpLocation('8.8.8.8')).toBe('中国 深圳');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('降级结果不缓存：服务恢复后下一次登录能查到真实地名', async () => {
+    vi.stubEnv('IP_LOCATION_API', 'http://geo.test/{ip}');
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ country: '中国', city: '深圳' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await resolveIpLocation('9.9.9.9')).toBe('monitor.location.public');
+    expect(await resolveIpLocation('9.9.9.9')).toBe('中国 深圳');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('超时默认 2500ms，可用 IP_LOCATION_TIMEOUT 覆盖', async () => {
+    vi.stubEnv('IP_LOCATION_API', 'http://geo.test/{ip}');
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ country: '中国', city: '深圳' }),
+    }));
+
+    await resolveIpLocation('7.7.7.7');
+    expect(timeoutSpy).toHaveBeenLastCalledWith(2500);
+
+    vi.stubEnv('IP_LOCATION_TIMEOUT', '5000');
+    await resolveIpLocation('6.6.6.6');
+    expect(timeoutSpy).toHaveBeenLastCalledWith(5000);
+
+    timeoutSpy.mockRestore();
   });
 });

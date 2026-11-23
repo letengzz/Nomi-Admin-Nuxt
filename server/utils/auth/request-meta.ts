@@ -7,7 +7,8 @@
  *   2. IP 归属 —— 内网/保留段本地就能判定，且返回的是 i18n 词条键，
  *      中英文界面各自翻译；公网 IP 可通过 `IP_LOCATION_API`（用 {ip} 占位）
  *      接任意归属地服务拿真实地名，没配或查询失败则回落「公网 IP」词条，
- *      不留空白（见 resolveIpLocation）。
+ *      不留空白（见 resolveIpLocation）。超时可用 `IP_LOCATION_TIMEOUT` 调整
+ *      （默认 2500ms，公共服务常在 700ms 以上，太短会必然降级）。
  *   3. 请求头脱敏 —— 令牌/Cookie 一律不落库，日志本身不能变成泄密源。
  */
 import { randomUUID } from 'node:crypto';
@@ -113,16 +114,40 @@ export function localIpLabel(raw: string): string {
   return '';
 }
 
-/** 从归属地服务返回体里挖地名：兼容 {province,city} / {data:{region,city}} / {region} / {city}。 */
+/**
+ * 从归属地服务返回体里挖地名。
+ *
+ * 字段名各家不一：ip-api.com 的省名在 `regionName`（`region` 只是 "IDF" 这类缩写），
+ * ipwho.is / ipinfo.io 用 `region`，国内服务多用 `province`。按
+ * province → regionName → region_name → region 的优先级取，避免显示「法国 IDF 巴黎」。
+ * 同时兼容 `{ data: {...} }` 嵌套。
+ */
 function pickLocation(raw: unknown): string {
   if (typeof raw === 'string') return raw.trim().slice(0, 120);
   if (!raw || typeof raw !== 'object') return '';
   const source = raw as Record<string, unknown>;
   const nested = source.data && typeof source.data === 'object' ? (source.data as Record<string, unknown>) : source;
-  const parts = [nested.country, nested.province ?? nested.region, nested.city, nested.district]
+  const region = nested.province ?? nested.regionName ?? nested.region_name ?? nested.region;
+  const parts = [nested.country, region, nested.city, nested.district]
     .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
     .map((part) => part.trim());
   return [...new Set(parts)].join(' ').slice(0, 120);
+}
+
+/** 默认超时 2500ms：ip-api.com 等免费服务实测要 700ms+，原来的 600ms 必然超时。可用 IP_LOCATION_TIMEOUT 覆盖。 */
+const DEFAULT_LOCATION_TIMEOUT_MS = 2500;
+/** 进程内缓存上限：只缓存查到的真实地名，防止同一批 IP 反复打外部服务。超量直接清空，实现简单且归属地本就低频。 */
+const LOCATION_CACHE_LIMIT = 2000;
+const locationCache = new Map<string, string>();
+
+function locationTimeoutMs(): number {
+  const configured = Number(process.env.IP_LOCATION_TIMEOUT);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_LOCATION_TIMEOUT_MS;
+}
+
+/** 仅测试用：清空归属地缓存，避免用例之间互相污染。 */
+export function clearIpLocationCache(): void {
+  locationCache.clear();
 }
 
 /**
@@ -132,6 +157,8 @@ function pickLocation(raw: unknown): string {
  * 内网/本地立刻返回词条键，不产生网络请求；公网在没配服务、服务报错或返回空时，
  * 回落到 `monitor.location.public`（界面显示「公网 IP」），不再留空 —— 审计列里
  * 一个「—」既不能定位也容易被误读成「没记录」，明确标「公网 IP」至少说明来源类型。
+ *
+ * 失败不写缓存：服务临时不可用时降级，恢复后下一次登录能自动查到真实地名。
  */
 export async function resolveIpLocation(raw: string): Promise<string> {
   const local = localIpLabel(raw);
@@ -139,15 +166,30 @@ export async function resolveIpLocation(raw: string): Promise<string> {
   const ip = normalizeIp(raw);
   const endpoint = process.env.IP_LOCATION_API;
   if (!ip || !endpoint) return 'monitor.location.public';
+
+  const cached = locationCache.get(ip);
+  if (cached) return cached;
+
   try {
     const response = await fetch(endpoint.replace('{ip}', encodeURIComponent(ip)), {
-      signal: AbortSignal.timeout(600),
+      signal: AbortSignal.timeout(locationTimeoutMs()),
       headers: { accept: 'application/json' },
     });
-    if (!response.ok) return 'monitor.location.public';
-    return pickLocation(await response.json()) || 'monitor.location.public';
-  } catch {
-    // 归属地服务不可用不该让登录/写日志失败，静默降级成「公网 IP」。
+    if (!response.ok) {
+      console.warn(`[ip-location] 查询失败 IP=${ip} HTTP ${response.status}`);
+      return 'monitor.location.public';
+    }
+    const place = pickLocation(await response.json());
+    if (!place) {
+      console.warn(`[ip-location] 返回空地名 IP=${ip}`);
+      return 'monitor.location.public';
+    }
+    if (locationCache.size >= LOCATION_CACHE_LIMIT) locationCache.clear();
+    locationCache.set(ip, place);
+    return place;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[ip-location] 查询异常 IP=${ip}：${reason}`);
     return 'monitor.location.public';
   }
 }
