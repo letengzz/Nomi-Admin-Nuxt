@@ -263,7 +263,7 @@ export const LANGUAGE_ENTRY_SEEDS: readonly LanguageEntrySeed[] = [
   { key: 'auth.user.importFormat', module: 'auth', zh: '只支持 xls、xlsx 格式', en: 'Only xls and xlsx files are supported' },
   { key: 'auth.user.importResult', module: 'auth', zh: '导入结果', en: 'Import result' },
   { key: 'auth.user.importResultLine', module: 'auth', zh: '新增 {created} 个，修改 {updated} 个，跳过 {skipped} 个，异常 {failed} 个', en: '{created} created, {updated} updated, {skipped} skipped, {failed} invalid' },
-  { key: 'auth.user.importTip', module: 'auth', zh: '请按照模板要求填写数据，填写完毕后，请先上传并进行解析', en: 'Fill in the data following the template, then upload it here for parsing' },
+  { key: 'auth.user.importTip', module: 'auth', zh: '请按模板填写后上传解析。新账号密码统一使用系统配置的初始密码，无需在表格中填写；导入的用户自动归入你所在的部门（超级管理员导入的用户为「未分配」）', en: 'Fill in the template and upload it for parsing. New accounts use the server-configured initial password (no password column needed), and are placed in your department (super admins create unassigned users)' },
   { key: 'auth.user.importTitle', module: 'auth', zh: '导入用户', en: 'Import users' },
   { key: 'auth.user.keyword', module: 'auth', zh: '搜索账号 / 昵称 / 邮箱 / 手机', en: 'Search account / nickname / email / mobile' },
   { key: 'auth.user.lastLogin', module: 'auth', zh: '最近登录', en: 'Last login' },

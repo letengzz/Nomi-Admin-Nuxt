@@ -822,7 +822,7 @@
       "exportDone": "已导出 {total} 个账号",
       "exportTruncated": "数据量超过上限，只导出了前 5000 条，请缩小筛选范围",
       "importTitle": "导入用户",
-      "importTip": "请按照模板要求填写数据，填写完毕后，请先上传并进行解析",
+      "importTip": "请按模板填写后上传解析。新账号密码统一使用系统配置的初始密码，无需在表格中填写；导入的用户自动归入你所在的部门（超级管理员导入的用户为「未分配」）",
       "downloadTemplate": "下载模板",
       "stepParse": "解析数据",
       "stepStrategy": "导入策略",

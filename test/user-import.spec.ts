@@ -6,13 +6,15 @@
  * 那部分由接口层和手工验收覆盖 —— 在这里造假库只会测出「我的 mock 长什么样」。
  */
 import * as XLSX from 'xlsx';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildUserExportFile,
   buildUserImportTemplate,
+  IMPORT_PASSWORD_ENV,
   MAX_IMPORT_ROWS,
   normalizeImportStrategies,
   parseUserImportFile,
+  resolveImportPassword,
 } from '../server/utils/auth/user-import';
 
 function sheetBuffer(rows: unknown[][]): Buffer {
@@ -28,23 +30,24 @@ function readBack(buffer: Buffer, sheetName?: string): unknown[][] {
   return XLSX.utils.sheet_to_json<unknown[]>(sheet!, { header: 1, raw: false, defval: '' });
 }
 
-const HEADER = ['账号*', '密码*', '昵称', '邮箱', '手机号', '性别', '部门', '角色*', '状态'];
+// 密码与部门刻意不在模板里：它们分别来自服务端配置与操作人所属部门。
+const HEADER = ['账号*', '昵称', '邮箱', '手机号', '性别', '角色*', '状态'];
 
 describe('parseUserImportFile', () => {
   it('按表头取列，行号与表格一致（空白行跳过但不占错位）', () => {
     const rows = parseUserImportFile(
       sheetBuffer([
         HEADER,
-        ['zhangsan', '123456', '张三', 'z@a.com', '13800138000', '男', '技术部', '普通用户', '启用'],
+        ['zhangsan', '张三', 'z@a.com', '13800138000', '男', '普通用户', '启用'],
         [],
-        ['lisi', '123456', '李四', '', '', '', '', '普通用户', ''],
+        ['lisi', '李四', '', '', '', '', '普通用户', ''],
       ]),
     );
 
     expect(rows).toHaveLength(2);
     expect(rows[0]!.line).toBe(2);
     expect(rows[0]!.cells.username).toBe('zhangsan');
-    expect(rows[0]!.cells.department).toBe('技术部');
+    expect(rows[0]!.cells.nickname).toBe('张三');
     // 空白行之后的那一行，行号仍然是 4
     expect(rows[1]!.line).toBe(4);
     expect(rows[1]!.cells.email).toBe('');
@@ -53,8 +56,8 @@ describe('parseUserImportFile', () => {
   it('认常见表头别名，多余的列不影响解析', () => {
     const rows = parseUserImportFile(
       sheetBuffer([
-        ['用户名', '密码', '备注', '手机', '角色'],
-        ['wangwu', 'abcdef', '这一列不会被读取', '13900139000', '运营,客服'],
+        ['用户名', '备注', '手机', '角色'],
+        ['wangwu', '这一列不会被读取', '13900139000', '运营,客服'],
       ]),
     );
 
@@ -65,11 +68,23 @@ describe('parseUserImportFile', () => {
     expect(rows[0]!.cells.nickname).toBe('');
   });
 
+  it('旧模板多出来的密码列 / 部门列会被忽略，不会污染解析结果', () => {
+    const rows = parseUserImportFile(
+      sheetBuffer([
+        ['账号', '密码', '部门', '手机号'],
+        ['zhaoliu', 'abcdef', '技术部', 13800138000],
+      ]),
+    );
+    expect(rows[0]!.cells.mobile).toBe('13800138000');
+    expect(rows[0]!.cells).not.toHaveProperty('password');
+    expect(rows[0]!.cells).not.toHaveProperty('department');
+  });
+
   it('手机号存成数字时不会变成科学计数法', () => {
     const rows = parseUserImportFile(
       sheetBuffer([
-        ['账号', '密码', '手机号'],
-        ['zhaoliu', '123456', 13800138000],
+        ['账号', '手机号'],
+        ['zhaoliu', 13800138000],
       ]),
     );
     expect(rows[0]!.cells.mobile).toBe('13800138000');
@@ -77,7 +92,7 @@ describe('parseUserImportFile', () => {
 
   it('表头不在第一行也能找到（上方有标题行）', () => {
     const rows = parseUserImportFile(
-      sheetBuffer([['用户导入表'], HEADER, ['sunqi', '123456', '', '', '', '', '', '普通用户', '']]),
+      sheetBuffer([['用户导入表'], HEADER, ['sunqi', '', '', '', '', '普通用户', '']]),
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.line).toBe(3);
@@ -92,8 +107,6 @@ describe('parseUserImportFile', () => {
   it('超过行数上限直接拒绝，不让人等一个注定失败的请求', () => {
     const body = Array.from({ length: MAX_IMPORT_ROWS + 1 }, (_, index) => [
       `user${index}`,
-      '123456',
-      '',
       '',
       '',
       '',
@@ -117,21 +130,47 @@ describe('buildUserImportTemplate', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.cells).toMatchObject({
       username: 'zhangsan',
-      password: '123456',
-      department: '技术部',
+      nickname: '张三',
       roles: '普通用户',
       status: '启用',
     });
+    // 密码与部门不在模板中：它们分别来自服务端配置和操作人所属部门。
+    expect(rows[0]!.cells).not.toHaveProperty('password');
+    expect(rows[0]!.cells).not.toHaveProperty('department');
   });
 
-  it('附带的填写说明不影响解析（只读第一张表）', () => {
+  it('填写说明里仍向人解释密码 / 部门来源，但不作为数据列解析', () => {
+    const guide = readBack(buildUserImportTemplate(), '填写说明');
+    expect(guide.some((row) => row[0] === '密码' && String(row[2]).includes('系统配置'))).toBe(true);
+    expect(guide.some((row) => row[0] === '部门' && String(row[2]).includes('操作人'))).toBe(true);
     const rows = parseUserImportFile(buildUserImportTemplate());
     expect(rows.every((row) => row.cells.username !== '字段')).toBe(true);
   });
 });
 
+describe('resolveImportPassword', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('未配置时直接报错，绝不给新账号写空密码', () => {
+    vi.stubEnv(IMPORT_PASSWORD_ENV, '');
+    expect(() => resolveImportPassword()).toThrow(/未配置/);
+  });
+
+  it('密码过短时报错，与服务端的密码策略一致', () => {
+    vi.stubEnv(IMPORT_PASSWORD_ENV, '12345');
+    expect(() => resolveImportPassword()).toThrow(/至少需要 6 位/);
+  });
+
+  it('返回配置的值（允许前后空白被 trim 掉）', () => {
+    vi.stubEnv(IMPORT_PASSWORD_ENV, '  Import@2026  ');
+    expect(resolveImportPassword()).toBe('Import@2026');
+  });
+});
+
 describe('buildUserExportFile', () => {
-  it('导出列与模板前 9 列对齐，且不含密码', () => {
+  it('导出仍带部门（只读资料）但不含密码，额外列导入时会被忽略', () => {
     const data = readBack(
       buildUserExportFile([
         {

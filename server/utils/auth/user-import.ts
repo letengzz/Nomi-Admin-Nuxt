@@ -33,7 +33,7 @@ import { assertSpreadsheetReadable, clampCellText } from '../spreadsheet-guard';
 export const MAX_IMPORT_ROWS = 500;
 /** 文件大小上限，和 Nginx 默认的 1MB 相比留足余量，又不至于让解析占满内存。 */
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
-/** 列数上限：模板只有 9 列，留到 64 列给「自己加了备注列」的人。 */
+/** 列数上限：模板现在 7 列（密码与部门不再放进表格），留到 64 列给「自己加了备注列」的人。 */
 export const MAX_IMPORT_COLUMNS = 64;
 /**
  * 交给解析器的行数上限。
@@ -52,14 +52,20 @@ const MOBILE_PATTERN = /^[0-9+\-() ]{5,20}$/;
 
 // --- 列定义 ------------------------------------------------------------------
 
+/**
+ * 模板列。密码与部门刻意不在其中：
+ *   - 密码来自服务端的统一配置（`IMPORT_DEFAULT_PASSWORD`），不落到表格里。
+ *     明文密码写在 Excel 里既容易被转发扩散，也会让「谁的密码是什么」没法统一收回。
+ *   - 部门取操作人自己的部门（超管为「未分配」），避免导入时凭一个名字猜部门、
+ *     也避免有人借导入把用户塞进自己管不到的部门。
+ * 老模板多了这两列也没关系：表头识别只认下面这些字段，多余的列会被忽略。
+ */
 export const IMPORT_FIELDS = [
   'username',
-  'password',
   'nickname',
   'email',
   'mobile',
   'gender',
-  'department',
   'roles',
   'status',
 ] as const;
@@ -69,12 +75,10 @@ export type ImportField = (typeof IMPORT_FIELDS)[number];
 /** 模板里的表头文案（带 * 表示必填，解析时会去掉）。 */
 const COLUMN_TITLES: Record<ImportField, string> = {
   username: '账号*',
-  password: '密码*',
   nickname: '昵称',
   email: '邮箱',
   mobile: '手机号',
   gender: '性别',
-  department: '部门',
   roles: '角色*',
   status: '状态',
 };
@@ -85,12 +89,10 @@ const COLUMN_TITLES: Record<ImportField, string> = {
  */
 const HEADER_ALIASES: Record<ImportField, readonly string[]> = {
   username: ['账号', '用户名', '登录账号', '登录名', 'username', 'account'],
-  password: ['密码', '初始密码', '登录密码', 'password', 'pwd'],
   nickname: ['昵称', '姓名', '名称', 'nickname', 'name'],
   email: ['邮箱', '电子邮箱', '邮件', 'email', 'mail'],
   mobile: ['手机号', '手机', '手机号码', '电话', '联系电话', 'mobile', 'phone'],
   gender: ['性别', 'gender', 'sex'],
-  department: ['部门', '所属部门', '部门名称', 'department', 'dept'],
   roles: ['角色', '用户角色', '角色名称', 'role', 'roles'],
   status: ['状态', 'status'],
 };
@@ -131,6 +133,26 @@ export const DEFAULT_IMPORT_STRATEGIES: UserImportStrategies = {
   onMobile: 'skip',
   defaultStatus: 'enable',
 };
+
+/** 导入新账号的统一初始密码来源（服务端环境变量，绝不随表格或请求传来）。 */
+export const IMPORT_PASSWORD_ENV = 'IMPORT_DEFAULT_PASSWORD';
+
+/**
+ * 读取统一密码。没配 / 太短直接报错：宁可让整批导入停下来，
+ * 也不能给新用户写入空密码或一个弱口令 —— 那比「导不进来」更难排查。
+ */
+export function resolveImportPassword(): string {
+  const password = (process.env[IMPORT_PASSWORD_ENV] ?? '').trim();
+  if (!password) {
+    throw new ApiError(
+      `服务端未配置 ${IMPORT_PASSWORD_ENV}，无法导入用户。请在 .env 中设置统一初始密码并重启服务`,
+    );
+  }
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    throw new ApiError(`${IMPORT_PASSWORD_ENV} 至少需要 ${PASSWORD_MIN_LENGTH} 位`);
+  }
+  return password;
+}
 
 /** 表单值 → 策略。认不出来的值退回默认，不让一个空字段把请求打挂。 */
 export function normalizeImportStrategies(raw: unknown): UserImportStrategies {
@@ -392,6 +414,8 @@ export async function prepareUserImport(
   rawRows: readonly ImportRawRow[],
   strategies: UserImportStrategies,
 ): Promise<PreparedImport> {
+  // 统一密码只从服务端配置读取。预览阶段就读，避免「预览一切正常、提交才失败」。
+  const importPassword = resolveImportPassword();
   const pool = getPool();
   const usernames = [...new Set(rawRows.map((row) => row.cells.username).filter(Boolean))];
   const emails = [...new Set(rawRows.map((row) => row.cells.email).filter(Boolean))];
@@ -406,30 +430,8 @@ export async function prepareUserImport(
   ]);
 
   const scope = await resolveDepartmentScope(context);
-  const visibleDepartmentIds = scope.departmentIds
-    ? new Set(scope.departmentIds)
-    : new Set(departments.map((row) => Number(row.id)));
-  const departmentByName = new Map<string, DepartmentLookupRow[]>();
-  for (const row of departments) {
-    const key = String(row.name ?? '').trim().toLowerCase();
-    if (!key) continue;
-    const list = departmentByName.get(key) ?? [];
-    list.push(row);
-    departmentByName.set(key, list);
-  }
+  // 部门不再从表格读，只用来回显操作人所属部门的名称（超管是「未分配」，显示为—）。
   const departmentById = new Map(departments.map((row) => [Number(row.id), row]));
-  // 「技术部/前端组」这种带层级的写法也认：同名的子部门挂在不同的父部门下很常见。
-  const departmentByPath = new Map<string, DepartmentLookupRow>();
-  const pathOf = (id: number, depth = 0): string => {
-    const row = departmentById.get(id);
-    if (!row || depth > 8) return '';
-    const parent = Number(row.pid) > 0 ? pathOf(Number(row.pid), depth + 1) : '';
-    return parent ? `${parent}/${row.name}` : String(row.name);
-  };
-  for (const row of departments) {
-    const path = pathOf(Number(row.id)).toLowerCase();
-    if (path && !departmentByPath.has(path)) departmentByPath.set(path, row);
-  }
 
   const roleByName = new Map<string, (typeof roleRows)[number]>();
   for (const role of roleRows) {
@@ -512,34 +514,20 @@ export async function prepareUserImport(
     if (cells.status && parsedStatus === null) errors.push('状态只能填启用 / 停用');
     const status = parsedStatus ?? strategies.defaultStatus;
 
-    // 部门：留空时落到操作人自己的部门（超管允许「未分配」）。
+    // 部门：一律取操作人自己的部门，表格里不再有这一列。
+    // 超管没有具体部门 → 未分配（0）；非超管没填部门 → 明确报错，不再猜。
     let departmentId = 0;
     let departmentName = '';
-    if (!cells.department) {
-      if (scope.departmentIds === null) {
-        departmentId = 0;
-      } else {
-        departmentId = Number(context.admin.department_id ?? 0) || 0;
-        if (departmentId === 0) errors.push('请填写部门');
-      }
-    } else {
-      const key = cells.department.trim().toLowerCase().replace(/\\/g, '/');
-      const byPath = departmentByPath.get(key);
-      const candidates = byPath ? [byPath] : (departmentByName.get(key.split('/').pop() ?? key) ?? []);
-      const target =
-        candidates.find((row) => Number(row.status) === 1 && visibleDepartmentIds.has(Number(row.id))) ??
-        candidates.find((row) => visibleDepartmentIds.has(Number(row.id)));
-      if (candidates.length === 0) errors.push(`部门不存在：${cells.department}`);
-      else if (!target) errors.push(`只能导入到本部门及下级部门：${cells.department}`);
-      else if (Number(target.status) !== 1) errors.push(`部门已停用：${cells.department}`);
-      else departmentId = Number(target.id);
+    // 超管（scope.departmentIds 为 null）保持 0 = 未分配；非超管取自己的部门。
+    if (scope.departmentIds !== null) {
+      departmentId = Number(context.admin.department_id ?? 0) || 0;
+      if (departmentId === 0) errors.push('你的账号未分配部门，无法导入用户，请联系管理员');
     }
     if (departmentId > 0) {
       departmentName = departmentById.get(departmentId)?.name ?? String(departmentId);
-    }
-    // 有部门就顺手确认它还在可见范围里：留空落到自己部门时也走这条。
-    if (departmentId > 0 && !isDepartmentVisible(scope, departmentId)) {
-      errors.push('只能导入到本部门及下级部门');
+      if (!isDepartmentVisible(scope, departmentId)) {
+        errors.push('只能导入到本部门及下级部门');
+      }
     }
 
     // 角色：名称 → id，且必须「我能分配」。
@@ -565,14 +553,10 @@ export async function prepareUserImport(
       roleIds.push(Number(role.id));
     }
 
-    // 密码：新建必填；「修改数据」时可以留空表示不改。
-    const password = cells.password;
+    // 密码：统一来自服务端配置，新建账号写统一密码；已存在账号（修改数据）不改密码。
+    // 表格里即使有人私加了「密码」列也不会被读取 —— 列定义里已经没有它。
     const existingId = ownerByUsername ? Number(ownerByUsername.id) : 0;
-    if (!password && !existingId) {
-      errors.push('密码不能为空');
-    } else if (password && password.length < PASSWORD_MIN_LENGTH) {
-      errors.push(`密码至少 ${PASSWORD_MIN_LENGTH} 位`);
-    }
+    const password = existingId > 0 ? '' : importPassword;
 
     // 已存在账号的修改权限：看不见 / 动不了 / 是自己，都不允许通过导入改。
     if (existingId > 0) {
@@ -906,17 +890,15 @@ function writeWorkbook(workbook: XLSX.WorkBook): Buffer {
 /** 下载模板：一张数据表 + 一张填写说明。示例行让人一眼看懂「角色要写名字」。 */
 export function buildUserImportTemplate(): Buffer {
   const header = IMPORT_FIELDS.map((field) => COLUMN_TITLES[field]);
-  const sample = ['zhangsan', '123456', '张三', 'zhangsan@example.com', '13800138000', '男', '技术部', '普通用户', '启用'];
+  const sample = ['zhangsan', '张三', 'zhangsan@example.com', '13800138000', '男', '普通用户', '启用'];
 
   const dataSheet = XLSX.utils.aoa_to_sheet([header, sample]);
   dataSheet['!cols'] = [
     { wch: 16 },
-    { wch: 12 },
     { wch: 14 },
     { wch: 26 },
     { wch: 16 },
     { wch: 8 },
-    { wch: 16 },
     { wch: 20 },
     { wch: 10 },
   ];
@@ -924,14 +906,14 @@ export function buildUserImportTemplate(): Buffer {
   const guideSheet = XLSX.utils.aoa_to_sheet([
     ['字段', '是否必填', '填写说明'],
     ['账号', '必填', '3-20 位字母、数字、下划线或短横线，不能与已有账号重复'],
-    ['密码', '必填', '至少 6 位；「用户已存在」选择「修改数据」时，留空表示不改密码'],
     ['昵称', '选填', '留空时与账号相同，最多 50 个字符'],
     ['邮箱', '选填', '不能与其他账号重复'],
     ['手机号', '选填', '5-20 位数字，可含 + - ( ) 和空格'],
     ['性别', '选填', '男 / 女 / 保密，留空按保密处理'],
-    ['部门', '选填', '填写部门名称（含上级时用 / 分隔，如 技术部/前端组）；留空则使用你自己的部门'],
     ['角色', '必填', '多个角色用英文逗号分隔，如 运营,客服；角色名必须与系统里一致'],
     ['状态', '选填', '启用 / 停用，留空时使用「默认状态」'],
+    ['密码', '无需填写', '新账号统一使用系统配置的初始密码；「修改数据」时不改动已有账号的密码'],
+    ['部门', '无需填写', '统一归入操作人所在部门；超级管理员导入的用户为「未分配」'],
   ]);
   guideSheet['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 62 }];
 

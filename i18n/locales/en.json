@@ -822,7 +822,7 @@
       "exportDone": "Exported {total} accounts",
       "exportTruncated": "The result exceeded the limit; only the first 5000 rows were exported. Narrow the filters and retry.",
       "importTitle": "Import users",
-      "importTip": "Fill in the data following the template, then upload it here for parsing",
+      "importTip": "Fill in the template and upload it for parsing. New accounts use the server-configured initial password (no password column needed), and are placed in your department (super admins create unassigned users)",
       "downloadTemplate": "Download template",
       "stepParse": "Parse data",
       "stepStrategy": "Import strategy",

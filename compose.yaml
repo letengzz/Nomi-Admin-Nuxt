@@ -30,6 +30,10 @@ services:
     volumes:
       # 不挂卷 = 每次 down/up 都是空库，账号与菜单全没了
       - mysql_data:/var/lib/mysql
+    ports:
+      # 只绑宿主机回环：本机可用 mysql 客户端直连，远程用 Navicat 的 SSH 隧道连。
+      # 千万别改成 '3306:3306'（0.0.0.0）—— 那会把数据库直接暴露到公网。
+      - '127.0.0.1:3306:3306'
     healthcheck:
       # 用 mysqladmin ping 而不是 `SELECT 1`：镜像自带，少一层依赖。
       # **必须 CMD-SHELL**：exec 形式（["CMD", ...]）不经 shell，`$VAR` 不会展开，
@@ -67,6 +71,8 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-nomi_admin}
       # 不配就会用代码里的开发默认值 —— 等于线上 token 密钥公开
       TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 里设置 TOKEN_SECRET}
+      # 批量导入新账号的统一初始密码；不配则导入功能直接报错，不会写空密码。
+      IMPORT_DEFAULT_PASSWORD: ${IMPORT_DEFAULT_PASSWORD:-}
       # 上传落在命名卷里。镜像内的 /app 归 root、进程是 node(1000)，
       # 所以用卷而不是 bind mount —— 后者要自己 chown 1000:1000。
       NOMI_UPLOAD_DIR: /app/data/uploads
