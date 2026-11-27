@@ -67,7 +67,7 @@ export default defineAdminHandler('monitor/online/index', async (event, context)
 
   const clause = `WHERE ${where.join(' AND ')}`;
   const pool = getPool();
-  const join = 'FROM `token` t LEFT JOIN `user` u ON u.`id` = t.`user_id`';
+  const join = 'FROM `token` t INNER JOIN `user` u ON u.`id` = t.`user_id` AND u.`deleted` = 0';
 
   const [countRows] = await pool.query<Array<{ total: number } & RowDataPacket>>(
     `SELECT COUNT(*) AS total ${join} ${clause}`,

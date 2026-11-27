@@ -143,13 +143,13 @@ function paginate<T>(list: readonly T[], page: number, limit: number): { rows: T
 /** 当前登录人可见的规则 id（超管 = 全部；其余按角色并集）。 */
 function grantedRules(): AdminRule[] {
   const user = currentUser();
-  if (user?.isSuper) return demoState.rules;
+  if (user?.isSuper) return live(demoState.rules);
   const ids = new Set<number>();
   for (const role of user?.roles ?? []) {
-    const found = demoState.roles.find((item) => item.id === role.id);
+    const found = live(demoState.roles).find((item) => item.id === role.id);
     for (const id of found?.rules ?? []) ids.add(id);
   }
-  return demoState.rules.filter((rule) => ids.has(rule.id));
+  return live(demoState.rules).filter((rule) => ids.has(rule.id));
 }
 
 function adminInfo(): AdminInfo {
@@ -192,7 +192,7 @@ function markSelf(users: readonly UserItem[]): UserItem[] {
 }
 
 function sortedNotices(): NoticeItem[] {
-  return [...demoState.notices].sort(
+  return [...live(demoState.notices)].sort(
     (a, b) => b.isTop - a.isTop || b.createTime - a.createTime || b.id - a.id,
   );
 }
@@ -222,22 +222,29 @@ function nestMessages(flat: ReadonlyArray<[string, string]>): Record<string, unk
 }
 
 function languageOverview(): LanguageOverview {
-  const modules = [...new Set(demoState.entries.map((entry) => entry.module))];
+  const modules = [...new Set(live(demoState.entries).map((entry) => entry.module))];
   return {
-    languages: demoState.languages,
+    languages: live(demoState.languages),
     modules,
-    total: demoState.entries.length,
+    total: live(demoState.entries).length,
     entryCounts: {
-      system: demoState.entries.filter((entry) => entry.type === 'system').length,
-      custom: demoState.entries.filter((entry) => entry.type === 'custom').length,
+      system: live(demoState.entries).filter((entry) => entry.type === 'system').length,
+      custom: live(demoState.entries).filter((entry) => entry.type === 'custom').length,
     },
   };
 }
 
-function deleteById<T extends { id: number }>(list: T[], id: number): boolean {
-  const index = list.findIndex((item) => item.id === id);
-  if (index < 0) return false;
-  list.splice(index, 1);
+/** 与服务端一致：所有业务主表的删除都是逻辑删除，行留在数组里但带 deleted 标记。 */
+type SoftDeletable = { id: number; deleted?: number };
+
+function live<T extends SoftDeletable>(list: readonly T[]): T[] {
+  return list.filter((item) => !item.deleted);
+}
+
+function deleteById<T extends SoftDeletable>(list: readonly T[], id: number): boolean {
+  const item = list.find((row) => row.id === id && !row.deleted);
+  if (!item) return false;
+  item.deleted = id;
   return true;
 }
 
@@ -248,12 +255,12 @@ function deleteById<T extends { id: number }>(list: T[], id: number): boolean {
 function loginResponse(body: Body): ApiEnvelope<unknown> {
   const identifier = bodyStr(body, 'userName').trim().toLowerCase();
   const user =
-    demoState.users.find(
+    live(demoState.users).find(
       (item) =>
         item.username.toLowerCase() === identifier ||
         (Boolean(item.mobile) && item.mobile.toLowerCase() === identifier) ||
         (Boolean(item.email) && item.email.toLowerCase() === identifier),
-    ) ?? demoState.users[0];
+    ) ?? live(demoState.users)[0];
   if (!user) return fail('演示数据缺失');
   demoState.currentUsername = user.username;
   user.lastLoginTime = now();
@@ -300,7 +307,7 @@ const routes: Route[] = [
     path: '/api/auth/departments',
     handler: () =>
       ok({
-        list: demoState.departments.map(({ id, pid, name }) => ({ id, pid, name })),
+        list: live(demoState.departments).map(({ id, pid, name }) => ({ id, pid, name })),
       }),
   },
   {
@@ -318,7 +325,7 @@ const routes: Route[] = [
       // 与真实接口同口径：登录名 / 邮箱都能找人，没绑邮箱或未绑定用户要明说。
       const account = bodyStr(body, 'account').trim().toLowerCase();
       const isEmail = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(account);
-      const user = demoState.users.find(
+      const user = live(demoState.users).find(
         (item) =>
           item.username.toLowerCase() === account ||
           (Boolean(item.email) && item.email.toLowerCase() === account),
@@ -354,7 +361,7 @@ const routes: Route[] = [
     method: 'GET',
     path: '/api/i18n/locales',
     handler: () => {
-      const enabled = demoState.languages.filter((item) => item.status === 1);
+      const enabled = live(demoState.languages).filter((item) => item.status === 1);
       return ok({
         defaultLocale: enabled.find((item) => item.isDefault)?.code ?? 'zh',
         locales: enabled
@@ -374,11 +381,11 @@ const routes: Route[] = [
     method: 'GET',
     path: '/api/i18n/messages',
     handler: () => {
-      const enabled = demoState.languages.filter((item) => item.status === 1);
+      const enabled = live(demoState.languages).filter((item) => item.status === 1);
       const messages: Record<string, Record<string, unknown>> = {};
       for (const language of enabled) {
         messages[language.code] = nestMessages(
-          demoState.entries.map((entry) => [entry.key, entry.values[language.code] ?? '']),
+          live(demoState.entries).map((entry) => [entry.key, entry.values[language.code] ?? '']),
         );
       }
       return ok({ messages });
@@ -398,7 +405,7 @@ const routes: Route[] = [
       const excludeRoleId = num(query, 'excludeRoleId', 0);
       const excludeSelf = query.excludeSelf === true || query.excludeSelf === 'true';
 
-      let list = markSelf(demoState.users);
+      let list = markSelf(live(demoState.users));
       if (departmentId) {
         const scope = departmentSubtree(departmentId);
         list = list.filter((user) => scope.has(user.departmentId));
@@ -422,7 +429,7 @@ const routes: Route[] = [
       }
 
       const { rows, page, limit } = paginate(list, num(query, 'page', 1), num(query, 'limit', 10));
-      return ok({ list: rows, total: list.length, allTotal: demoState.users.length, page, limit });
+      return ok({ list: rows, total: list.length, allTotal: live(demoState.users).length, page, limit });
     },
   },
   {
@@ -432,7 +439,7 @@ const routes: Route[] = [
       const id = demoState.seq.user++;
       const roleIds = bodyList(body, 'roles');
       const departmentId = bodyNum(body, 'departmentId');
-      const department = demoState.departments.find((item) => item.id === departmentId);
+      const department = live(demoState.departments).find((item) => item.id === departmentId);
       demoState.users.push({
         id,
         username: bodyStr(body, 'username') || `demo${id}`,
@@ -451,7 +458,7 @@ const routes: Route[] = [
         createTime: now(),
         roles: roleIds.map((roleId) => ({
           id: roleId,
-          name: demoState.roles.find((role) => role.id === roleId)?.name ?? '普通用户',
+          name: live(demoState.roles).find((role) => role.id === roleId)?.name ?? '普通用户',
         })),
         isSuper: roleIds.includes(1),
         operable: true,
@@ -466,7 +473,7 @@ const routes: Route[] = [
     path: '/api/admin/users/edit',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const user = demoState.users.find((item) => item.id === id);
+      const user = live(demoState.users).find((item) => item.id === id);
       if (!user) return fail('账号不存在');
       const departmentId = bodyNum(body, 'departmentId');
       const roleIds = bodyList(body, 'roles');
@@ -479,11 +486,11 @@ const routes: Route[] = [
       user.status = bodyStr(body, 'status') || user.status;
       user.departmentId = departmentId;
       user.departmentName =
-        demoState.departments.find((item) => item.id === departmentId)?.name ?? '未分配';
+        live(demoState.departments).find((item) => item.id === departmentId)?.name ?? '未分配';
       if (roleIds.length > 0) {
         user.roles = roleIds.map((roleId) => ({
           id: roleId,
-          name: demoState.roles.find((role) => role.id === roleId)?.name ?? '普通用户',
+          name: live(demoState.roles).find((role) => role.id === roleId)?.name ?? '普通用户',
         }));
         user.isSuper = roleIds.includes(1);
       }
@@ -496,10 +503,16 @@ const routes: Route[] = [
     path: '/api/admin/users/del',
     handler: ({ body }) => {
       const ids = bodyList(body, 'ids');
-      const before = demoState.users.length;
-      demoState.users = demoState.users.filter((user) => !ids.includes(user.id));
+      let deleted = 0;
+      for (const id of ids) {
+        const user = demoState.users.find((row) => row.id === id && !row.deleted);
+        if (user) {
+          user.deleted = id;
+          deleted += 1;
+        }
+      }
       refreshRoleCounts();
-      return ok({ deleted: before - demoState.users.length });
+      return ok({ deleted });
     },
   },
   {
@@ -509,7 +522,7 @@ const routes: Route[] = [
       const ids = bodyList(body, 'ids');
       const status = bodyStr(body, 'status') === 'disable' ? 'disable' : 'enable';
       let updated = 0;
-      for (const user of demoState.users) {
+      for (const user of live(demoState.users)) {
         if (!ids.includes(user.id)) continue;
         user.status = status;
         updated += 1;
@@ -545,7 +558,7 @@ const routes: Route[] = [
     path: '/api/admin/roles/list',
     handler: () => {
       refreshRoleCounts();
-      return ok({ list: demoState.roles, total: demoState.roles.length, super: true });
+      return ok({ list: live(demoState.roles), total: live(demoState.roles).length, super: true });
     },
   },
   {
@@ -575,7 +588,7 @@ const routes: Route[] = [
     path: '/api/admin/roles/edit',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const role = demoState.roles.find((item) => item.id === id);
+      const role = live(demoState.roles).find((item) => item.id === id);
       if (!role) return fail('角色不存在');
       role.name = bodyStr(body, 'name') || role.name;
       role.code = bodyStr(body, 'code') || role.code;
@@ -602,10 +615,10 @@ const routes: Route[] = [
       const roleId = bodyNum(body, 'id');
       const userIds = bodyList(body, 'userIds');
       const action = bodyStr(body, 'action');
-      const role = demoState.roles.find((item) => item.id === roleId);
+      const role = live(demoState.roles).find((item) => item.id === roleId);
       if (!role) return fail('角色不存在');
       let affected = 0;
-      for (const user of demoState.users) {
+      for (const user of live(demoState.users)) {
         if (!userIds.includes(user.id)) continue;
         const joined = user.roles.some((item) => item.id === roleId);
         if (action === 'add' && !joined) {
@@ -627,7 +640,7 @@ const routes: Route[] = [
     method: 'GET',
     path: '/api/admin/rules/list',
     handler: () => {
-      const rules = demoState.rules;
+      const rules = live(demoState.rules);
       return ok({
         list: rules,
         tree: buildRuleTree(rules),
@@ -668,7 +681,7 @@ const routes: Route[] = [
     path: '/api/admin/rules/edit',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const rule = demoState.rules.find((item) => item.id === id);
+      const rule = live(demoState.rules).find((item) => item.id === id);
       if (!rule) return fail('节点不存在');
       rule.pid = bodyNum(body, 'pid');
       rule.name = bodyStr(body, 'name') || rule.name;
@@ -688,8 +701,10 @@ const routes: Route[] = [
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
       if (!deleteById(demoState.rules, id)) return fail('节点不存在');
-      // 子节点跟着删，避免菜单里留下一批孤儿
-      demoState.rules = demoState.rules.filter((rule) => rule.pid !== id);
+      // 子节点跟着逻辑删除，避免菜单里留下一批孤儿
+      for (const rule of demoState.rules) {
+        if (rule.pid === id && !rule.deleted) rule.deleted = rule.id;
+      }
       return ok({ id });
     },
   },
@@ -702,7 +717,7 @@ const routes: Route[] = [
       if (Array.isArray(weights)) {
         for (const item of weights) {
           const row = item as { id?: number; weigh?: number };
-          const rule = demoState.rules.find((entry) => entry.id === Number(row.id));
+          const rule = live(demoState.rules).find((entry) => entry.id === Number(row.id));
           if (!rule) continue;
           rule.weigh = Number(row.weigh ?? rule.weigh);
           updated += 1;
@@ -718,7 +733,7 @@ const routes: Route[] = [
     path: '/api/admin/departments/list',
     handler: () => {
       refreshDepartmentCounts();
-      return ok({ list: demoState.departments, total: demoState.departments.length });
+      return ok({ list: live(demoState.departments), total: live(demoState.departments).length });
     },
   },
   {
@@ -747,7 +762,7 @@ const routes: Route[] = [
     path: '/api/admin/departments/edit',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const dept = demoState.departments.find((item) => item.id === id);
+      const dept = live(demoState.departments).find((item) => item.id === id);
       if (!dept) return fail('部门不存在');
       dept.pid = bodyNum(body, 'pid');
       dept.name = bodyStr(body, 'name') || dept.name;
@@ -793,7 +808,7 @@ const routes: Route[] = [
     path: '/api/admin/notices/:id',
     handler: ({ params }) => {
       const id = Number(params.id);
-      const notice = demoState.notices.find((item) => item.id === id);
+      const notice = live(demoState.notices).find((item) => item.id === id);
       return notice ? ok(notice) : fail('公告不存在', 404);
     },
   },
@@ -828,7 +843,7 @@ const routes: Route[] = [
     path: '/api/admin/notices/edit',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const notice = demoState.notices.find((item) => item.id === id);
+      const notice = live(demoState.notices).find((item) => item.id === id);
       if (!notice) return fail('公告不存在');
       const publishTime = bodyNum(body, 'publishTime');
       notice.title = bodyStr(body, 'title') || notice.title;
@@ -1022,7 +1037,7 @@ const routes: Route[] = [
       const profile: SelfProfile = demoState.profile;
       if (field === 'mobile') profile.mobile = value;
       else profile.email = value;
-      const user = demoState.users.find((item) => item.id === profile.id);
+      const user = live(demoState.users).find((item) => item.id === profile.id);
       if (user) {
         if (field === 'mobile') user.mobile = value;
         else user.email = value;
@@ -1045,7 +1060,7 @@ const routes: Route[] = [
       const keyword = str(query, 'keyword').toLowerCase();
       const module = str(query, 'module');
       const type = str(query, 'type');
-      let list = demoState.entries;
+      let list = live(demoState.entries);
       if (keyword) {
         list = list.filter((entry) =>
           [entry.key, ...Object.values(entry.values)].some((value) =>
@@ -1064,7 +1079,7 @@ const routes: Route[] = [
     path: '/api/admin/languages/save',
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
-      const exist = demoState.languages.find((item) => item.id === id);
+      const exist = live(demoState.languages).find((item) => item.id === id);
       if (exist) {
         exist.code = bodyStr(body, 'code') || exist.code;
         exist.name = bodyStr(body, 'name') || exist.name;
@@ -1102,7 +1117,7 @@ const routes: Route[] = [
     handler: ({ body }) => {
       const id = bodyNum(body, 'id');
       const values = (body.values ?? {}) as Record<string, string>;
-      const exist = demoState.entries.find((item) => item.id === id);
+      const exist = live(demoState.entries).find((item) => item.id === id);
       if (exist) {
         exist.values = { ...exist.values, ...values };
         exist.remark = bodyStr(body, 'remark') || exist.remark;
@@ -1135,16 +1150,16 @@ const routes: Route[] = [
 
 /** 角色成员数、部门人数是派生值：改完账号立刻重算，页面上不会出现「刚加的人没算进去」。 */
 function refreshRoleCounts(): void {
-  for (const role of demoState.roles) {
-    role.memberCount = demoState.users.filter((user) =>
+  for (const role of live(demoState.roles)) {
+    role.memberCount = live(demoState.users).filter((user) =>
       user.roles.some((item) => item.id === role.id),
     ).length;
   }
 }
 
 function refreshDepartmentCounts(): void {
-  for (const dept of demoState.departments) {
-    dept.userCount = demoState.users.filter((user) => user.departmentId === dept.id).length;
+  for (const dept of live(demoState.departments)) {
+    dept.userCount = live(demoState.users).filter((user) => user.departmentId === dept.id).length;
   }
 }
 

@@ -48,7 +48,7 @@ interface DepartmentDbRow extends RowDataPacket {
 export async function listDepartmentRows(): Promise<DepartmentDbRow[]> {
   const pool = getPool();
   const [rows] = await pool.query<DepartmentDbRow[]>(
-    'SELECT `id`,`pid`,`name`,`leader`,`phone`,`weigh`,`status`,`create_time`,`update_time` FROM `department` ORDER BY `weigh` DESC, `id` ASC',
+    'SELECT `id`,`pid`,`name`,`leader`,`phone`,`weigh`,`status`,`create_time`,`update_time` FROM `department` WHERE `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
   );
   return rows;
 }
@@ -56,7 +56,7 @@ export async function listDepartmentRows(): Promise<DepartmentDbRow[]> {
 export async function getDepartmentRow(id: number): Promise<DepartmentDbRow | undefined> {
   const pool = getPool();
   const [rows] = await pool.query<DepartmentDbRow[]>(
-    'SELECT `id`,`pid`,`name`,`leader`,`phone`,`weigh`,`status`,`create_time`,`update_time` FROM `department` WHERE `id` = ? LIMIT 1',
+    'SELECT `id`,`pid`,`name`,`leader`,`phone`,`weigh`,`status`,`create_time`,`update_time` FROM `department` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   return rows[0];
@@ -69,7 +69,7 @@ export async function getDepartmentRow(id: number): Promise<DepartmentDbRow | un
  */
 async function getUserCounts(scope: DepartmentScope | null): Promise<Map<number, number>> {
   const condition = scope ? departmentScopeCondition(scope) : null;
-  const where = ['`department_id` > 0'];
+  const where = ['`deleted` = 0', '`department_id` > 0'];
   const params: unknown[] = [];
   if (condition) {
     where.push(condition.clause);
@@ -114,7 +114,7 @@ export async function listEnabledDepartments(): Promise<
   const [rows] = await pool.query<
     Array<{ id: number; pid: number; name: string } & RowDataPacket>
   >(
-    'SELECT `id`,`pid`,`name` FROM `department` WHERE `status` = 1 ORDER BY `weigh` DESC, `id` ASC',
+    'SELECT `id`,`pid`,`name` FROM `department` WHERE `status` = 1 AND `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
   );
   return rows.map((row) => ({ id: row.id, pid: row.pid, name: row.name }));
 }
@@ -210,13 +210,13 @@ export async function assertDepartmentDeletable(
 
   const pool = getPool();
   const [children] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `department` WHERE `pid` = ? LIMIT 1',
+    'SELECT `id` FROM `department` WHERE `pid` = ? AND `deleted` = 0 LIMIT 1',
     [row.id],
   );
   if (children.length > 0) throw new ApiError('该部门下还有子部门，请先删除子部门');
 
   const [users] = await pool.query<Array<{ total: number } & RowDataPacket>>(
-    'SELECT COUNT(*) AS total FROM `user` WHERE `department_id` = ?',
+    'SELECT COUNT(*) AS total FROM `user` WHERE `department_id` = ? AND `deleted` = 0',
     [row.id],
   );
   if (Number(users[0]?.total ?? 0) > 0) throw new ApiError('该部门下还有成员，请先调整成员所属部门');

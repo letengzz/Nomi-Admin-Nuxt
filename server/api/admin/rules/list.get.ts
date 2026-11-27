@@ -12,7 +12,7 @@ import { getPool } from '../../../database/pool';
 async function loadAllRules(): Promise<RuleRow[]> {
   const pool = getPool();
   const [rows] = await pool.query<RuleRow[]>(
-    'SELECT * FROM `permission_rule` ORDER BY `weigh` DESC, `id` ASC',
+    'SELECT * FROM `permission_rule` WHERE `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
   );
   return rows;
 }

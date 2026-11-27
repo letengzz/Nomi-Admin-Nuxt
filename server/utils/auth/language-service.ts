@@ -171,15 +171,15 @@ export async function listLanguages(): Promise<LanguageOverview> {
   const pool = getPool();
   const [[langRows], [entryCount], [valueCounts], [moduleRows], [typeRows]] = await Promise.all([
     pool.query<LanguageRow[]>(
-      'SELECT `id`,`code`,`name`,`native_name`,`weigh`,`status` FROM `language` ORDER BY `weigh` DESC, `id` ASC',
+      'SELECT `id`,`code`,`name`,`native_name`,`weigh`,`status` FROM `language` WHERE `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
     ),
-    pool.query<CountRow[]>('SELECT COUNT(*) AS total FROM `language_entry`'),
+    pool.query<CountRow[]>('SELECT COUNT(*) AS total FROM `language_entry` WHERE `deleted` = 0'),
     pool.query<ValueCountRow[]>(
-      "SELECT `lang_code`, COUNT(*) AS total FROM `language_value` WHERE `value` IS NOT NULL AND `value` <> '' GROUP BY `lang_code`",
+      "SELECT v.`lang_code`, COUNT(*) AS total FROM `language_value` v INNER JOIN `language_entry` e ON e.`id` = v.`entry_id` AND e.`deleted` = 0 WHERE v.`value` IS NOT NULL AND v.`value` <> '' GROUP BY v.`lang_code`",
     ),
-    pool.query<ModuleRow[]>('SELECT DISTINCT `module` FROM `language_entry` ORDER BY `module` ASC'),
+    pool.query<ModuleRow[]>('SELECT DISTINCT `module` FROM `language_entry` WHERE `deleted` = 0 ORDER BY `module` ASC'),
     pool.query<Array<{ type: EntryType; total: number } & RowDataPacket>>(
-      'SELECT `type`, COUNT(*) AS total FROM `language_entry` GROUP BY `type`',
+      'SELECT `type`, COUNT(*) AS total FROM `language_entry` WHERE `deleted` = 0 GROUP BY `type`',
     ),
   ]);
   const counts = new Map(valueCounts.map((row) => [row.lang_code, Number(row.total)]));
@@ -209,7 +209,7 @@ export async function listEntries(
   query: EntryQuery,
 ): Promise<{ list: LanguageEntryItem[]; total: number; page: number; limit: number }> {
   const pool = getPool();
-  const where: string[] = [];
+  const where: string[] = ['e.`deleted` = 0'];
   const params: unknown[] = [];
   if (query.keyword) {
     const like = `%${query.keyword}%`;
@@ -297,7 +297,7 @@ export async function saveLanguage(input: LanguageInput): Promise<{ id: number }
   const now = ts();
   if (input.id > 0) {
     const [rows] = await pool.query<LanguageRow[]>(
-      'SELECT `id`,`code` FROM `language` WHERE `id` = ? LIMIT 1',
+      'SELECT `id`,`code` FROM `language` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
       [input.id],
     );
     const existing = rows[0];
@@ -306,7 +306,7 @@ export async function saveLanguage(input: LanguageInput): Promise<{ id: number }
       throw new ApiError('默认语言不能停用');
     }
     await pool.query(
-      'UPDATE `language` SET `name`=?,`native_name`=?,`weigh`=?,`status`=?,`update_time`=? WHERE `id`=?',
+      'UPDATE `language` SET `name`=?,`native_name`=?,`weigh`=?,`status`=?,`update_time`=? WHERE `id`=? AND `deleted`=0',
       [input.name, input.nativeName, input.weigh, input.status, now, input.id],
     );
     return { id: input.id };
@@ -330,7 +330,7 @@ export async function deleteLanguage(id: number): Promise<void> {
   if (!Number.isInteger(id) || id <= 0) throw new ApiError('缺少语言 id');
   const pool = getPool();
   const [rows] = await pool.query<LanguageRow[]>(
-    'SELECT `id`,`code` FROM `language` WHERE `id` = ? LIMIT 1',
+    'SELECT `id`,`code` FROM `language` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   const existing = rows[0];
@@ -340,8 +340,11 @@ export async function deleteLanguage(id: number): Promise<void> {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query('DELETE FROM `language_value` WHERE `lang_code` = ?', [existing.code]);
-    await connection.query('DELETE FROM `language` WHERE `id` = ?', [id]);
+    // 语言本体逻辑删除；译文不再物理清理，运行时只读取 deleted=0 的语言。
+    await connection.query(
+      'UPDATE `language` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+      [ts(), id],
+    );
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -390,11 +393,11 @@ export async function saveEntry(input: EntryInput): Promise<{ id: number }> {
 
   if (entryId > 0) {
     const [rows] = await pool.query<EntryRow[]>(
-      'SELECT `id`,`key` FROM `language_entry` WHERE `id` = ? LIMIT 1',
+      'SELECT `id`,`key` FROM `language_entry` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
       [entryId],
     );
     if (!rows[0]) throw new ApiError('词条不存在');
-    await pool.query('UPDATE `language_entry` SET `remark`=?,`update_time`=? WHERE `id`=?', [
+    await pool.query('UPDATE `language_entry` SET `remark`=?,`update_time`=? WHERE `id`=? AND `deleted`=0', [
       input.remark,
       now,
       entryId,
@@ -429,7 +432,7 @@ export async function deleteEntry(id: number): Promise<void> {
   if (!Number.isInteger(id) || id <= 0) throw new ApiError('缺少词条 id');
   const pool = getPool();
   const [rows] = await pool.query<EntryTypeRow[]>(
-    'SELECT `id`,`key`,`type` FROM `language_entry` WHERE `id` = ? LIMIT 1',
+    'SELECT `id`,`key`,`type` FROM `language_entry` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   const existing = rows[0];
@@ -443,8 +446,11 @@ export async function deleteEntry(id: number): Promise<void> {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query('DELETE FROM `language_value` WHERE `entry_id` = ?', [id]);
-    await connection.query('DELETE FROM `language_entry` WHERE `id` = ?', [id]);
+    // 词条逻辑删除；旧译文留着不影响运行时（查询会过滤已删除词条）。
+    await connection.query(
+      'UPDATE `language_entry` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+      [ts(), id],
+    );
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -458,7 +464,7 @@ export async function deleteEntry(id: number): Promise<void> {
 export async function getRuntimeMessages(): Promise<Record<string, Record<string, unknown>>> {
   const pool = getPool();
   const [langRows] = await pool.query<Array<{ code: string } & RowDataPacket>>(
-    'SELECT `code` FROM `language` WHERE `status` = 1',
+    'SELECT `code` FROM `language` WHERE `status` = 1 AND `deleted` = 0',
   );
   const codes = langRows.map((row) => row.code);
   if (codes.length === 0) return {};
@@ -466,7 +472,7 @@ export async function getRuntimeMessages(): Promise<Record<string, Record<string
   const [rows] = await pool.query<MessageRow[]>(
     `SELECT e.\`key\`, v.\`lang_code\`, v.\`value\`
        FROM \`language_value\` v
-       INNER JOIN \`language_entry\` e ON e.\`id\` = v.\`entry_id\`
+       INNER JOIN \`language_entry\` e ON e.\`id\` = v.\`entry_id\` AND e.\`deleted\` = 0
       WHERE v.\`lang_code\` IN (?) AND v.\`value\` IS NOT NULL AND v.\`value\` <> ''`,
     [codes],
   );
@@ -501,7 +507,7 @@ export async function listEnabledLanguages(): Promise<{
 }> {
   const pool = getPool();
   const [rows] = await pool.query<LanguageRow[]>(
-    'SELECT `id`,`code`,`name`,`native_name`,`weigh`,`status` FROM `language` WHERE `status` = 1 ORDER BY `weigh` DESC, `id` ASC',
+    'SELECT `id`,`code`,`name`,`native_name`,`weigh`,`status` FROM `language` WHERE `status` = 1 AND `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
   );
   return {
     defaultLocale: DEFAULT_LANGUAGE_CODE,
@@ -519,7 +525,7 @@ export async function listEnabledLanguages(): Promise<{
 export async function listLanguageCodes(): Promise<string[]> {
   const pool = getPool();
   const [rows] = await pool.query<Array<{ code: string } & RowDataPacket>>(
-    'SELECT `code` FROM `language` ORDER BY `id` ASC',
+    'SELECT `code` FROM `language` WHERE `deleted` = 0 ORDER BY `id` ASC',
   );
   return rows.map((row) => row.code);
 }

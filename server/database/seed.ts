@@ -160,10 +160,10 @@ export interface SeedAudit {
  */
 export async function auditSeededAccounts(pool: Pool): Promise<SeedAudit> {
   const [pendingRows] = await pool.query<Array<{ username: string } & RowDataPacket>>(
-    'SELECT `username` FROM `user` WHERE `must_change_password` = 1 ORDER BY `id` ASC LIMIT 20',
+    'SELECT `username` FROM `user` WHERE `must_change_password` = 1 AND `deleted` = 0 ORDER BY `id` ASC LIMIT 20',
   );
   const [demoRows] = await pool.query<Array<{ username: string } & RowDataPacket>>(
-    'SELECT `username` FROM `user` WHERE `username` IN (?) ORDER BY `id` ASC LIMIT 20',
+    'SELECT `username` FROM `user` WHERE `username` IN (?) AND `deleted` = 0 ORDER BY `id` ASC LIMIT 20',
     [DEMO_USERNAMES],
   );
 

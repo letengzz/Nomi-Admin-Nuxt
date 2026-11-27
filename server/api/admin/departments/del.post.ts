@@ -23,6 +23,9 @@ export default defineAdminHandler('system/department/del', async (event, context
   await assertDepartmentDeletable(existing);
 
   const pool = getPool();
-  await pool.query('DELETE FROM `department` WHERE `id` = ?', [id]);
+  await pool.query(
+    'UPDATE `department` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+    [Math.floor(Date.now() / 1000), id],
+  );
   return ok({ id });
 });

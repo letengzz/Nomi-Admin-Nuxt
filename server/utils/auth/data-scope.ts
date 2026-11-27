@@ -42,7 +42,7 @@ export function isStrictSubset(a: readonly number[], b: ReadonlySet<number>): bo
 async function getAllEnabledRoles(): Promise<RoleWithRules[]> {
   const pool = getPool();
   const [rows] = await pool.query<RoleWithRules[]>(
-    'SELECT `id`,`pid`,`name`,`rules` FROM `role` WHERE `status` = 1 ORDER BY `id` ASC',
+    'SELECT `id`,`pid`,`name`,`rules` FROM `role` WHERE `status` = 1 AND `deleted` = 0 ORDER BY `id` ASC',
   );
   return rows;
 }
@@ -79,7 +79,7 @@ export async function getRoleUserIds(roleIds: readonly number[]): Promise<number
   if (roleIds.length === 0) return [];
   const pool = getPool();
   const [rows] = await pool.query<Array<{ user_id: number } & RowDataPacket>>(
-    'SELECT DISTINCT `user_id` FROM `user_role` WHERE `role_id` IN (?)',
+    'SELECT DISTINCT ur.`user_id` FROM `user_role` ur INNER JOIN `user` u ON u.`id` = ur.`user_id` AND u.`deleted` = 0 WHERE ur.`role_id` IN (?)',
     [roleIds],
   );
   return rows.map((row) => row.user_id);

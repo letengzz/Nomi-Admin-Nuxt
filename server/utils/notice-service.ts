@@ -247,7 +247,7 @@ function toItem(row: NoticeDbRow, now: number): NoticeItem {
 async function allDepartmentNodes(): Promise<DepartmentScopeNode[]> {
   const pool = getPool();
   const [rows] = await pool.query<Array<{ id: number; pid: number } & RowDataPacket>>(
-    'SELECT `id`,`pid` FROM `department`',
+    'SELECT `id`,`pid` FROM `department` WHERE `deleted` = 0',
   );
   return rows.map((row) => ({ id: Number(row.id), pid: Number(row.pid) }));
 }
@@ -287,7 +287,7 @@ export function normalizeNoticeListQuery(raw: unknown): NoticeListQuery {
 
 /** 管理端列表：不过滤发布时间（管理员要能看到定时中的内容），支持关键字/分类/状态/发布态筛选。 */
 export async function listNotices(query: NoticeListQuery): Promise<NoticeItem[]> {
-  const where: string[] = ['1 = 1'];
+  const where: string[] = ['`deleted` = 0'];
   const params: unknown[] = [];
   if (query.keyword) {
     where.push('(`title` LIKE ? OR `content` LIKE ?)');
@@ -318,7 +318,7 @@ export async function listNotices(query: NoticeListQuery): Promise<NoticeItem[]>
 export async function getNoticeRow(id: number): Promise<NoticeDbRow | undefined> {
   const pool = getPool();
   const [rows] = await pool.query<NoticeDbRow[]>(
-    `SELECT ${SELECT_COLUMNS} FROM \`announcement\` WHERE \`id\` = ? LIMIT 1`,
+    `SELECT ${SELECT_COLUMNS} FROM \`announcement\` WHERE \`id\` = ? AND \`deleted\` = 0 LIMIT 1`,
     [id],
   );
   return rows[0];
@@ -353,7 +353,7 @@ export async function updateNotice(id: number, input: NoticeInput): Promise<void
   if (!existing) throw new ApiError('公告不存在');
   const pool = getPool();
   await pool.query(
-    `UPDATE \`announcement\` SET \`title\`=?,\`category\`=?,\`content\`=?,\`publish_time\`=?,\`is_top\`=?,\`notify_method\`=?,\`notify_scope\`=?,\`scope_ids\`=?,\`status\`=?,\`update_time\`=? WHERE \`id\`=?`,
+    `UPDATE \`announcement\` SET \`title\`=?,\`category\`=?,\`content\`=?,\`publish_time\`=?,\`is_top\`=?,\`notify_method\`=?,\`notify_scope\`=?,\`scope_ids\`=?,\`status\`=?,\`update_time\`=? WHERE \`id\`=? AND \`deleted\`=0`,
     [
       input.title, input.category, input.content, input.publishTime, input.isTop,
       input.notifyMethod, input.notifyScope, input.scopeIds.join(','), input.status,
@@ -366,7 +366,10 @@ export async function deleteNotice(id: number): Promise<void> {
   const existing = await getNoticeRow(id);
   if (!existing) throw new ApiError('公告不存在');
   const pool = getPool();
-  await pool.query('DELETE FROM `announcement` WHERE `id` = ?', [id]);
+  await pool.query(
+    'UPDATE `announcement` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+    [Math.floor(Date.now() / 1000), id],
+  );
 }
 
 // --- 铃铛可见公告 -------------------------------------------------------------
@@ -381,7 +384,7 @@ export async function visibleNoticesFor(context: AdminContext): Promise<NoticeIt
   const pool = getPool();
   const [rows] = await pool.query<NoticeDbRow[]>(
     `SELECT ${SELECT_COLUMNS} FROM \`announcement\`
-      WHERE \`status\` = 1 AND (\`publish_time\` = 0 OR \`publish_time\` <= ?)
+      WHERE \`status\` = 1 AND \`deleted\` = 0 AND (\`publish_time\` = 0 OR \`publish_time\` <= ?)
       ORDER BY \`is_top\` DESC, \`publish_time\` DESC, \`id\` DESC
       LIMIT 50`,
     [now],

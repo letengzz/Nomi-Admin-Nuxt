@@ -100,7 +100,7 @@ export async function resolveDepartmentScope(context: AdminContext): Promise<Dep
 
   const pool = getPool();
   const [rows] = await pool.query<Array<{ id: number; pid: number } & RowDataPacket>>(
-    'SELECT `id`,`pid` FROM `department`',
+    'SELECT `id`,`pid` FROM `department` WHERE `deleted` = 0',
   );
   return buildDepartmentScope(identity, rows);
 }
@@ -237,7 +237,7 @@ export function userScopeSubquery(
   const inner = userScopeCondition(scope);
   if (!inner) return null;
   return {
-    clause: `${quoteField(userField)} IN (SELECT \`id\` FROM \`user\` WHERE ${inner.clause})`,
+    clause: `${quoteField(userField)} IN (SELECT \`id\` FROM \`user\` WHERE \`deleted\` = 0 AND ${inner.clause})`,
     params: [...inner.params],
   };
 }

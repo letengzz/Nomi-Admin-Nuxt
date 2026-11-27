@@ -534,7 +534,13 @@ async function importLanguageEntries(pool: Pool): Promise<void> {
   // `type` 是后加的列（见 addLanguageEntryType）。这个函数在若干迁移里被复用，
   // 执行顺序不保证列已经存在，所以按实际表结构拼 SQL 而不是假设它有。
   const hasType = await hasColumn(pool, 'language_entry', 'type');
-  const entryRows = LANGUAGE_ENTRY_SEEDS.map((seed) =>
+  // 逻辑删除后唯一键变成 (key, deleted)：INSERT IGNORE 不再能挡住同名旧词条。
+  // 这里主动跳过「库里出现过的 key」（含已删除的），避免迁移把刻意删掉的文案复活。
+  const [knownEntries] = await pool.query<Array<{ key: string } & RowDataPacket>>(
+    'SELECT `key` FROM `language_entry`',
+  );
+  const knownKeys = new Set(knownEntries.map((row) => row.key));
+  const entryRows = LANGUAGE_ENTRY_SEEDS.filter((seed) => !knownKeys.has(seed.key)).map((seed) =>
     hasType ? [seed.key, seed.module, 'system', ts, ts] : [seed.key, seed.module, ts, ts],
   );
   const columns = hasType
@@ -546,7 +552,12 @@ async function importLanguageEntries(pool: Pool): Promise<void> {
     ]);
   }
 
-  const [entries] = await pool.query<EntryIdRow[]>('SELECT `id`,`key` FROM `language_entry`');
+  const hasDeleted = await hasColumn(pool, 'language_entry', 'deleted');
+  const [entries] = await pool.query<EntryIdRow[]>(
+    hasDeleted
+      ? 'SELECT `id`,`key` FROM `language_entry` WHERE `deleted` = 0'
+      : 'SELECT `id`,`key` FROM `language_entry`',
+  );
   const idByKey = new Map(entries.map((row) => [row.key, Number(row.id)]));
   const valueRows: unknown[][] = [];
   for (const seed of LANGUAGE_ENTRY_SEEDS) {
@@ -664,25 +675,20 @@ async function refreshLanguageCodeHint(pool: Pool): Promise<void> {
  * 「改了没反应」的词条，干脆连值一起删掉。
  */
 async function dropHeaderBrandEntry(pool: Pool): Promise<void> {
-  await pool.query(
-    `DELETE lv FROM \`language_value\` lv
-        INNER JOIN \`language_entry\` le ON le.\`id\` = lv.\`entry_id\`
-      WHERE le.\`key\` = ?`,
-    ['layout.header.brand'],
-  );
-  await pool.query('DELETE FROM `language_entry` WHERE `key` = ?', ['layout.header.brand']);
+  await pool.query('UPDATE `language_entry` SET `deleted`=`id`,`update_time`=? WHERE `key` = ? AND `deleted` = 0', [
+    Math.floor(Date.now() / 1000),
+    'layout.header.brand',
+  ]);
 }
 
-/** 删掉一整组词条（值 + 词条行）：页面改版后不再使用的标签不该留在语言管理里。 */
+/** 逻辑删除一整组词条：页面改版后不再使用的标签不该留在语言管理里。 */
 async function dropLanguageEntries(pool: Pool, keys: readonly string[]): Promise<void> {
+  const ts = Math.floor(Date.now() / 1000);
   for (const key of keys) {
     await pool.query(
-      `DELETE lv FROM \`language_value\` lv
-          INNER JOIN \`language_entry\` le ON le.\`id\` = lv.\`entry_id\`
-        WHERE le.\`key\` = ?`,
-      [key],
+      'UPDATE `language_entry` SET `deleted`=`id`,`update_time`=? WHERE `key` = ? AND `deleted` = 0',
+      [ts, key],
     );
-    await pool.query('DELETE FROM `language_entry` WHERE `key` = ?', [key]);
   }
 }
 
@@ -966,6 +972,70 @@ async function addTokenScopeDepartment(pool: Pool): Promise<void> {
   }
 }
 
+/** 索引里是否已经包含某一列（用来判断唯一键有没有扩成复合键）。 */
+async function indexHasColumn(
+  pool: Pool,
+  table: string,
+  index: string,
+  column: string,
+): Promise<boolean> {
+  const [rows] = await pool.query<CountRow[]>(
+    `SELECT COUNT(*) AS total
+       FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? AND COLUMN_NAME = ?`,
+    [table, index, column],
+  );
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+interface SoftDeleteTable {
+  table: string;
+  /** 有业务唯一键的表需要扩成复合键，避免已删除记录占用名字。 */
+  unique?: { index: string; columns: readonly string[] };
+}
+
+const SOFT_DELETE_TABLES: readonly SoftDeleteTable[] = [
+  { table: 'announcement' },
+  { table: 'department' },
+  { table: 'user', unique: { index: 'uk_username', columns: ['username', 'deleted'] } },
+  { table: 'role' },
+  { table: 'permission_rule', unique: { index: 'uk_name', columns: ['name', 'deleted'] } },
+  { table: 'language', unique: { index: 'uk_code', columns: ['code', 'deleted'] } },
+  { table: 'language_entry', unique: { index: 'uk_key', columns: ['key', 'deleted'] } },
+];
+
+/**
+ * 业务主表统一改为逻辑删除。
+ *
+ * `deleted` 用 bigint：0 = 有效，删除时写入这一行的 id。唯一键扩成
+ * (业务键, deleted) 之后，有效行仍然唯一；已删除行各自带着不同的 id，
+ * 既不会互相撞键，也允许重新使用同一个账号名 / 角色名 / 菜单标识。
+ *
+ * 全新库的建表语句已经是目标状态，这里逐项判空，因此对老库和新库都幂等。
+ */
+async function addSoftDeleteColumns(pool: Pool): Promise<void> {
+  for (const { table, unique } of SOFT_DELETE_TABLES) {
+    if (!(await tableExists(pool, table))) continue;
+    if (!(await hasColumn(pool, table, 'deleted'))) {
+      await pool.query(
+        'ALTER TABLE `' + table + '` ADD COLUMN `deleted` bigint unsigned NOT NULL DEFAULT 0 COMMENT \'0=有效；非0=删除时的行id（逻辑删除）\'',
+      );
+    }
+    if (unique && (await hasIndex(pool, table, unique.index))) {
+      if (!(await indexHasColumn(pool, table, unique.index, 'deleted'))) {
+        const columns = unique.columns.map((name) => '`' + name + '`').join(',');
+        await pool.query('ALTER TABLE `' + table + '` DROP INDEX `' + unique.index + '`');
+        await pool.query(
+          'ALTER TABLE `' + table + '` ADD UNIQUE INDEX `' + unique.index + '` (' + columns + ')',
+        );
+      }
+    }
+    if (!(await hasIndex(pool, table, 'idx_deleted'))) {
+      await pool.query('ALTER TABLE `' + table + '` ADD KEY `idx_deleted` (`deleted`)');
+    }
+  }
+}
+
 const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-15-drop-user-type', run: dropUserType },
   { name: '2026-11-15-add-user-department', run: addUserDepartment },
@@ -1038,6 +1108,8 @@ const MIGRATIONS: readonly Migration[] = [
   { name: '2026-11-22-sanitize-announcement-html', run: sanitizeAnnouncementContent },
   // 公网 IP 归属地兜底文案：同步 monitor.location.public，语言管理里才能翻译。
   { name: '2026-11-23-sync-ip-location-public-entry', run: syncLanguageSeedEntries },
+  // 逻辑删除：业务主表补 deleted 列，唯一键扩成复合键；老库启动即自动升级。
+  { name: '2026-11-26-add-soft-delete', run: addSoftDeleteColumns },
 ];
 
 /**

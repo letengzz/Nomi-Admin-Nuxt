@@ -45,7 +45,7 @@ export default defineAdminHandler('monitor/online/kick', async (event, context) 
 
   const [rows] = await pool.query<TargetRow[]>(
     `SELECT t.\`user_id\`, u.\`username\`, u.\`nickname\`
-       FROM \`token\` t LEFT JOIN \`user\` u ON u.\`id\` = t.\`user_id\`
+       FROM \`token\` t INNER JOIN \`user\` u ON u.\`id\` = t.\`user_id\` AND u.\`deleted\` = 0
       WHERE ${where.join(' AND ')} LIMIT 1`,
     params,
   );

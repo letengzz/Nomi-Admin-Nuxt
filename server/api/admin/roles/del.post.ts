@@ -30,11 +30,14 @@ export default defineAdminHandler('system/role/del', async (event, context) => {
 
   const pool = getPool();
   const [children] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `role` WHERE `pid` = ? LIMIT 1',
+    'SELECT `id` FROM `role` WHERE `pid` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   if (children.length > 0) throw new ApiError('该角色下还有下级角色，请先删除下级角色');
 
-  await pool.query('DELETE FROM `role` WHERE `id` = ?', [id]);
+  await pool.query(
+    'UPDATE `role` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+    [Math.floor(Date.now() / 1000), id],
+  );
   return ok({ id });
 });

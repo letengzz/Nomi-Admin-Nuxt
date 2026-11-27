@@ -185,7 +185,7 @@ async function loadAccessMap(ids: readonly number[]): Promise<Map<number, Access
   const [rows] = await pool.query<AccessRow[]>(
     `SELECT ur.\`user_id\`, ur.\`role_id\`, r.\`name\`, r.\`rules\`, r.\`status\`
        FROM \`user_role\` ur
-       INNER JOIN \`role\` r ON r.\`id\` = ur.\`role_id\`
+       INNER JOIN \`role\` r ON r.\`id\` = ur.\`role_id\` AND r.\`deleted\` = 0
       WHERE ur.\`user_id\` IN (?)`,
     [ids],
   );
@@ -221,7 +221,7 @@ async function listDepartmentNodes(): Promise<Array<{ id: number; pid: number; n
   const pool = getPool();
   const [rows] = await pool.query<
     Array<{ id: number; pid: number; name: string } & RowDataPacket>
-  >('SELECT `id`,`pid`,`name` FROM `department` ORDER BY `weigh` DESC, `id` ASC');
+  >('SELECT `id`,`pid`,`name` FROM `department` WHERE `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC');
   return rows.map((row) => ({ id: row.id, pid: row.pid, name: row.name }));
 }
 
@@ -260,7 +260,9 @@ export async function buildUserListConditions(
   context: AdminContext,
   query: UserListQuery,
 ): Promise<UserListConditions> {
-  const where: string[] = [];
+  // 逻辑删除的账号不进任何列表 / 计数 / 导出。放在最前面，
+  // 后面所有筛选都只是在这堆有效账号上继续收窄。
+  const where: string[] = ['`deleted` = 0'];
   const params: unknown[] = [];
 
   const scope = await resolveDepartmentScope(context);
@@ -327,7 +329,9 @@ export async function listUsers(
   // 否则左树挂着一个全库数字，点进去却只列出几个人，反而更让人困惑。
   // 这里用「只按部门」的条件，保证与部门树各节点人数相加对得上。
   const totalScope = departmentScopeCondition(scope);
-  const totalClause = totalScope ? `WHERE ${totalScope.clause}` : '';
+  const totalClause = totalScope
+    ? `WHERE \`deleted\` = 0 AND ${totalScope.clause}`
+    : 'WHERE `deleted` = 0';
 
   const [[countRows], [allCountRows], [rows]] = await Promise.all([
     pool.query<Array<{ total: number } & RowDataPacket>>(
@@ -460,7 +464,7 @@ export async function inspectUsersForImport(
 
   const pool = getPool();
   const [rows] = await pool.query<Array<{ id: number; department_id: number } & RowDataPacket>>(
-    'SELECT `id`,`department_id` FROM `user` WHERE `id` IN (?)',
+    'SELECT `id`,`department_id` FROM `user` WHERE `id` IN (?) AND `deleted` = 0',
     [ids],
   );
   const scope = await resolveDepartmentScope(context);
@@ -614,7 +618,7 @@ async function resolveDepartment(
 
   const pool = getPool();
   const [rows] = await pool.query<Array<{ status: number } & RowDataPacket>>(
-    'SELECT `status` FROM `department` WHERE `id` = ? LIMIT 1',
+    'SELECT `status` FROM `department` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
     [input.departmentId],
   );
   const dept = rows[0];
@@ -626,7 +630,7 @@ async function resolveDepartment(
 async function assertUsernameFree(username: string, exceptId?: number): Promise<void> {
   const pool = getPool();
   const [rows] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `user` WHERE `username` = ? LIMIT 1',
+    'SELECT `id` FROM `user` WHERE `username` = ? AND `deleted` = 0 LIMIT 1',
     [username],
   );
   const existing = rows[0];
@@ -691,7 +695,10 @@ export async function createUser(context: AdminContext, input: UserPayload): Pro
 
 async function loadTarget(id: number): Promise<{ row: UserDbRow; access: AccessRow[] }> {
   const pool = getPool();
-  const [rows] = await pool.query<UserDbRow[]>('SELECT * FROM `user` WHERE `id` = ? LIMIT 1', [id]);
+  const [rows] = await pool.query<UserDbRow[]>(
+    'SELECT * FROM `user` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
+    [id],
+  );
   const row = rows[0];
   if (!row) throw new ApiError('账号不存在');
   const access = (await loadAccessMap([id])).get(id) ?? [];
@@ -708,7 +715,7 @@ function assertOperable(context: AdminContext, access: readonly AccessRow[]): vo
 export async function countSupers(): Promise<number> {
   const pool = getPool();
   const [rows] = await pool.query<AccessRow[]>(
-    'SELECT ur.`user_id`, ur.`role_id`, r.`name`, r.`rules`, r.`status` FROM `user_role` ur INNER JOIN `role` r ON r.`id` = ur.`role_id`',
+    'SELECT ur.`user_id`, ur.`role_id`, r.`name`, r.`rules`, r.`status` FROM `user_role` ur INNER JOIN `user` u ON u.`id` = ur.`user_id` AND u.`deleted` = 0 INNER JOIN `role` r ON r.`id` = ur.`role_id` AND r.`deleted` = 0',
   );
   const byUser = new Map<number, AccessRow[]>();
   for (const row of rows) {
@@ -777,7 +784,7 @@ export async function updateUser(
       sql += '`password`=?,`login_failure`=0,';
       params.push(await hashPassword(input.password));
     }
-    sql += '`update_time`=? WHERE `id`=?';
+    sql += '`update_time`=? WHERE `id`=? AND `deleted` = 0';
     params.push(nowSeconds(), id);
 
     await connection.query(sql, params);
@@ -813,7 +820,10 @@ export async function assertBatchOperable(
   if (ids.includes(context.admin.id)) throw new ApiError('不能对自己执行这个操作');
 
   const pool = getPool();
-  const [rows] = await pool.query<UserDbRow[]>('SELECT * FROM `user` WHERE `id` IN (?)', [ids]);
+  const [rows] = await pool.query<UserDbRow[]>(
+    'SELECT * FROM `user` WHERE `id` IN (?) AND `deleted` = 0',
+    [ids],
+  );
   if (rows.length !== ids.length) throw new ApiError('部分账号不存在，请刷新后重试');
 
   // 所有批量写操作（停用、删除、角色成员分配）都从这里过，范围校验放在
@@ -846,7 +856,7 @@ export async function setUserStatus(
   const pool = getPool();
   const targetIds = targets.map((item) => item.row.id);
   const [result] = await pool.query<ResultSetHeader>(
-    'UPDATE `user` SET `status`=?,`update_time`=? WHERE `id` IN (?)',
+    'UPDATE `user` SET `status`=?,`update_time`=? WHERE `id` IN (?) AND `deleted` = 0',
     [next, nowSeconds(), targetIds],
   );
   if (next === 'disable') await revokeTokens(targetIds);
@@ -869,7 +879,7 @@ export async function resetUserPassword(
   // 这串密码是**管理员设定并转达**的，等于已经过了一次别人的手/聊天窗口，
   // 因此标记「下次登录必须改密」：管理员的方便不能以长期共享凭据为代价。
   const [result] = await pool.query<ResultSetHeader>(
-    'UPDATE `user` SET `password`=?,`login_failure`=0,`must_change_password`=1,`update_time`=? WHERE `id`=?',
+    'UPDATE `user` SET `password`=?,`login_failure`=0,`must_change_password`=1,`update_time`=? WHERE `id`=? AND `deleted` = 0',
     [await hashPassword(password), nowSeconds(), id],
   );
   if (result.affectedRows === 0) throw new ApiError('账号不存在');
@@ -896,9 +906,11 @@ export async function deleteUsers(context: AdminContext, ids: readonly number[])
       TOKEN_TYPE_ADMIN_REFRESH,
       targetIds,
     ]);
+    // 账号本体逻辑删除：deleted 写成自己的 id，既保留审计链路，
+    // 又让同样的账号名可以在唯一键 (username, deleted) 下重新使用。
     const [result] = await connection.query<ResultSetHeader>(
-      'DELETE FROM `user` WHERE `id` IN (?)',
-      [targetIds],
+      'UPDATE `user` SET `deleted`=`id`,`update_time`=? WHERE `id` IN (?) AND `deleted` = 0',
+      [nowSeconds(), targetIds],
     );
     await connection.commit();
     return result.affectedRows;

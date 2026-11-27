@@ -42,7 +42,7 @@ export default defineAdminHandler('system/role/edit', async (event, context) => 
 
   const pool = getPool();
   await pool.query(
-    'UPDATE `role` SET `pid` = ?, `name` = ?, `code` = ?, `rules` = ?, `status` = ?, `update_time` = ? WHERE `id` = ?',
+    'UPDATE `role` SET `pid` = ?, `name` = ?, `code` = ?, `rules` = ?, `status` = ?, `update_time` = ? WHERE `id` = ? AND `deleted` = 0',
     [input.pid, input.name, input.code, rulesText, status, nowSeconds(), id],
   );
 

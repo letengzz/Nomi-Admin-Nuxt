@@ -49,7 +49,7 @@ interface RoleDbRow extends RowDataPacket {
 export async function listRoleRows(): Promise<RoleDbRow[]> {
   const pool = getPool();
   const [rows] = await pool.query<RoleDbRow[]>(
-    'SELECT `id`,`pid`,`name`,`code`,`rules`,`status`,`create_time`,`update_time` FROM `role` ORDER BY `pid` ASC, `id` ASC',
+    'SELECT `id`,`pid`,`name`,`code`,`rules`,`status`,`create_time`,`update_time` FROM `role` WHERE `deleted` = 0 ORDER BY `pid` ASC, `id` ASC',
   );
   return rows;
 }
@@ -57,7 +57,7 @@ export async function listRoleRows(): Promise<RoleDbRow[]> {
 export async function getRoleRow(id: number): Promise<RoleDbRow | undefined> {
   const pool = getPool();
   const [rows] = await pool.query<RoleDbRow[]>(
-    'SELECT `id`,`pid`,`name`,`code`,`rules`,`status`,`create_time`,`update_time` FROM `role` WHERE `id` = ? LIMIT 1',
+    'SELECT `id`,`pid`,`name`,`code`,`rules`,`status`,`create_time`,`update_time` FROM `role` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   return rows[0];
@@ -74,11 +74,20 @@ export async function getRoleMemberCounts(
   scope: DepartmentScope | null = null,
 ): Promise<Map<number, number>> {
   const condition = scope ? userScopeSubquery(scope) : null;
-  const where = condition ? `WHERE ${condition.clause}` : '';
+  const clauses = ['r.`deleted` = 0'];
+  const params: unknown[] = [];
+  if (condition) {
+    clauses.push(condition.clause);
+    params.push(...condition.params);
+  }
   const pool = getPool();
   const [rows] = await pool.query<Array<{ role_id: number; total: number } & RowDataPacket>>(
-    `SELECT \`role_id\`, COUNT(*) AS \`total\` FROM \`user_role\` ${where} GROUP BY \`role_id\``,
-    condition?.params ?? [],
+    `SELECT ur.\`role_id\`, COUNT(*) AS \`total\`
+       FROM \`user_role\` ur
+       INNER JOIN \`role\` r ON r.\`id\` = ur.\`role_id\`
+      WHERE ${clauses.join(' AND ')}
+      GROUP BY ur.\`role_id\``,
+    params,
   );
   return new Map(rows.map((row) => [row.role_id, Number(row.total)]));
 }
@@ -164,7 +173,7 @@ export async function assertRoleCodeAvailable(code: string, excludeId = 0): Prom
   if (!code) return;
   const pool = getPool();
   const [rows] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `role` WHERE `code` = ? AND `id` <> ? LIMIT 1',
+    'SELECT `id` FROM `role` WHERE `code` = ? AND `id` <> ? AND `deleted` = 0 LIMIT 1',
     [code, excludeId],
   );
   if (rows.length > 0) throw new ApiError('角色编码已被其他角色使用');
@@ -217,7 +226,7 @@ export async function stripRuleIdsFromRoles(ids: readonly number[]): Promise<voi
     if (current.includes('*')) continue;
     const next = ruleIdsToNumbers(current).filter((id) => !drop.has(id));
     if (next.length === ruleIdsToNumbers(current).length) continue;
-    await pool.query('UPDATE `role` SET `rules` = ?, `update_time` = ? WHERE `id` = ?', [
+    await pool.query('UPDATE `role` SET `rules` = ?, `update_time` = ? WHERE `id` = ? AND `deleted` = 0', [
       next.join(','),
       Math.floor(Date.now() / 1000),
       role.id,

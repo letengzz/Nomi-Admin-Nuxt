@@ -30,7 +30,7 @@ export default defineAdminHandler('system/department/edit', async (event, contex
   const status = lockRootDepartmentStatus(input.status, input.pid, existing.pid);
   const pool = getPool();
   await pool.query(
-    'UPDATE `department` SET `pid`=?,`name`=?,`leader`=?,`phone`=?,`weigh`=?,`status`=?,`update_time`=? WHERE `id`=?',
+    'UPDATE `department` SET `pid`=?,`name`=?,`leader`=?,`phone`=?,`weigh`=?,`status`=?,`update_time`=? WHERE `id`=? AND `deleted`=0',
     [input.pid, input.name, input.leader, input.phone, input.weigh, status, nowSeconds(), id],
   );
 

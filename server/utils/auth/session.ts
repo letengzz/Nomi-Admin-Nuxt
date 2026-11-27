@@ -82,15 +82,19 @@ export function toProfile(admin: AdminRow): AdminProfile {
 
 export async function findAdminById(id: number): Promise<AdminRow | undefined> {
   const pool = getPool();
-  const [rows] = await pool.query<AdminRow[]>('SELECT * FROM `user` WHERE `id` = ? LIMIT 1', [id]);
+  const [rows] = await pool.query<AdminRow[]>(
+    'SELECT * FROM `user` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
+    [id],
+  );
   return rows[0];
 }
 
 export async function findAdminByUsername(username: string): Promise<AdminRow | undefined> {
   const pool = getPool();
-  const [rows] = await pool.query<AdminRow[]>('SELECT * FROM `user` WHERE `username` = ? LIMIT 1', [
-    username,
-  ]);
+  const [rows] = await pool.query<AdminRow[]>(
+    'SELECT * FROM `user` WHERE `username` = ? AND `deleted` = 0 LIMIT 1',
+    [username],
+  );
   return rows[0];
 }
 
@@ -111,7 +115,7 @@ export async function findAdminByUsername(username: string): Promise<AdminRow | 
 export async function findAdminByAccount(account: string): Promise<AdminRow | undefined> {
   const pool = getPool();
   const [rows] = await pool.query<AdminRow[]>(
-    'SELECT * FROM `user` WHERE `username` = ? OR (`email` <> \'\' AND LOWER(`email`) = LOWER(?)) ORDER BY (`username` = ?) DESC LIMIT 1',
+    'SELECT * FROM `user` WHERE `deleted` = 0 AND (`username` = ? OR (`email` <> \'\' AND LOWER(`email`) = LOWER(?))) ORDER BY (`username` = ?) DESC LIMIT 1',
     [account, account, account],
   );
   return rows[0];
@@ -145,7 +149,7 @@ export async function findAdminByLogin(identifier: string): Promise<AdminRow | u
   const lookup = buildLoginLookup(identifier);
   const pool = getPool();
   const [rows] = await pool.query<AdminRow[]>(
-    `SELECT * FROM \`user\` WHERE ${lookup.where} ${lookup.order} LIMIT 1`,
+    `SELECT * FROM \`user\` WHERE \`deleted\` = 0 AND ${lookup.where} ${lookup.order} LIMIT 1`,
     [...lookup.params, lookup.params[0], lookup.params[0]],
   );
   return rows[0];
@@ -251,7 +255,7 @@ export async function loginAdmin(
     // 失败次数只在窗口内累加；窗口外从头计，避免「一年前错两次」也算进来。
     const failure =
       ts - admin.last_login_time >= LOGIN_FAILURE_WINDOW ? 1 : admin.login_failure + 1;
-    await pool.query('UPDATE `user` SET `login_failure` = ?, `last_login_time` = ? WHERE `id` = ?', [
+    await pool.query('UPDATE `user` SET `login_failure` = ?, `last_login_time` = ? WHERE `id` = ? AND `deleted` = 0', [
       failure,
       ts,
       admin.id,
@@ -273,7 +277,7 @@ export async function loginAdmin(
   const selectedDepartmentId = Number(options.departmentId) || 0;
   if (selectedDepartmentId > 0) {
     const [departments] = await getPool().query<Array<{ id: number; pid: number } & RowDataPacket>>(
-      'SELECT `id`,`pid` FROM `department`',
+      'SELECT `id`,`pid` FROM `department` WHERE `deleted` = 0',
     );
     if (!isLoginDepartmentAllowed(admin.department_id, selectedDepartmentId, departments)) {
       await writeLog('failed', false, '所选部门不在账号所属部门及其下级部门', admin);
@@ -284,7 +288,7 @@ export async function loginAdmin(
   const pool = getPool();
   const ip = clientIp(event);
   await pool.query(
-    'UPDATE `user` SET `login_failure` = 0, `last_login_time` = ?, `last_login_ip` = ?, `update_time` = ? WHERE `id` = ?',
+    'UPDATE `user` SET `login_failure` = 0, `last_login_time` = ?, `last_login_ip` = ?, `update_time` = ? WHERE `id` = ? AND `deleted` = 0',
     [ts, ip, ts, admin.id],
   );
 

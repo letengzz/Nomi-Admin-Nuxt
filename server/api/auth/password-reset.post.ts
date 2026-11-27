@@ -83,7 +83,7 @@ export default definePublicHandler(async (event) => {
 
   const pool = getPool();
   await pool.query(
-    'UPDATE `user` SET `password` = ?, `salt` = \'\', `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ?',
+    'UPDATE `user` SET `password` = ?, `salt` = \'\', `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ? AND `deleted` = 0',
     [await hashPassword(newPassword), nowSeconds(), admin.id],
   );
 

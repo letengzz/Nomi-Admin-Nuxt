@@ -48,7 +48,7 @@ export default definePublicHandler(async (event) => {
 
   const pool = getPool();
   const [exists] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `user` WHERE `username` = ? LIMIT 1',
+    'SELECT `id` FROM `user` WHERE `username` = ? AND `deleted` = 0 LIMIT 1',
     [userName],
   );
   if (exists.length > 0) throw new ApiError('该账号已被注册', 409);

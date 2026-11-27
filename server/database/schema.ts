@@ -36,10 +36,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`creator_name\` varchar(50) NOT NULL DEFAULT '' COMMENT '发布人名称',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
     KEY \`idx_publish_time\` (\`publish_time\`),
     KEY \`idx_category\` (\`category\`),
-    KEY \`idx_status\` (\`status\`)
+    KEY \`idx_status\` (\`status\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告表'`,
 
   // 部门（组织树）。功能权限仍由角色决定；部门额外承担「数据范围」：
@@ -55,9 +57,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`status\` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 停用',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
     KEY \`idx_pid\` (\`pid\`),
-    KEY \`idx_name\` (\`name\`)
+    KEY \`idx_name\` (\`name\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='部门表'`,
 
   // 账号表。**不再有「账号类型」字段**：一个人和后台的关系只有「他有哪些角色」。
@@ -84,10 +88,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`status\` varchar(30) NOT NULL DEFAULT 'enable' COMMENT 'enable / disable',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
-    UNIQUE KEY \`uk_username\` (\`username\`),
+    UNIQUE KEY \`uk_username\` (\`username\`,\`deleted\`),
     KEY \`idx_status\` (\`status\`),
-    KEY \`idx_department\` (\`department_id\`)
+    KEY \`idx_department\` (\`department_id\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账号表'`,
 
   // 角色。pid 只用于展示上的分级，真正的上下级判定看权限集合包含关系
@@ -101,9 +107,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`status\` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 停用',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
     KEY \`idx_pid\` (\`pid\`),
-    KEY \`idx_status\` (\`status\`)
+    KEY \`idx_status\` (\`status\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色表'`,
 
   // 账号 ↔ 角色 多对多。刻意不做主键，只加唯一键防止重复授权。
@@ -134,10 +142,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`status\` tinyint(1) NOT NULL DEFAULT 1,
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
-    UNIQUE KEY \`uk_name\` (\`name\`),
+    UNIQUE KEY \`uk_name\` (\`name\`,\`deleted\`),
     KEY \`idx_pid\` (\`pid\`),
-    KEY \`idx_status\` (\`status\`)
+    KEY \`idx_status\` (\`status\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜单和权限规则表'`,
 
   // 操作日志。除了「谁在哪做了什么」，还带上一次请求的完整上下文：
@@ -232,8 +242,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`status\` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 停用',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
-    UNIQUE KEY \`uk_code\` (\`code\`)
+    UNIQUE KEY \`uk_code\` (\`code\`,\`deleted\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='语言表'`,
 
   `CREATE TABLE IF NOT EXISTS \`language_entry\` (
@@ -244,10 +256,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     \`remark\` varchar(255) NOT NULL DEFAULT '',
     \`create_time\` bigint NOT NULL DEFAULT 0,
     \`update_time\` bigint NOT NULL DEFAULT 0,
+    \`deleted\` bigint unsigned NOT NULL DEFAULT 0 COMMENT '0=有效；非0=删除时的行id（逻辑删除）',
     PRIMARY KEY (\`id\`),
-    UNIQUE KEY \`uk_key\` (\`key\`),
+    UNIQUE KEY \`uk_key\` (\`key\`,\`deleted\`),
     KEY \`idx_module\` (\`module\`),
-    KEY \`idx_type\` (\`type\`)
+    KEY \`idx_type\` (\`type\`),
+    KEY \`idx_deleted\` (\`deleted\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='语言词条表'`,
 
   `CREATE TABLE IF NOT EXISTS \`language_value\` (

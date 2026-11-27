@@ -116,7 +116,7 @@ export async function getAdminRoles(adminId: number): Promise<RoleRow[]> {
     `SELECT r.\`id\`, r.\`pid\`, r.\`name\`, r.\`rules\`, r.\`status\`
        FROM \`role\` r
        INNER JOIN \`user_role\` ur ON ur.\`role_id\` = r.\`id\`
-      WHERE ur.\`user_id\` = ? AND r.\`status\` = 1
+      WHERE ur.\`user_id\` = ? AND r.\`status\` = 1 AND r.\`deleted\` = 0
       ORDER BY r.\`id\` ASC`,
     [adminId],
   );
@@ -128,7 +128,7 @@ export async function getRulesByIds(ids: number[]): Promise<RuleRow[]> {
   if (ids.length === 0) return [];
   const pool = getPool();
   const [rows] = await pool.query<RuleRow[]>(
-    `SELECT * FROM \`permission_rule\` WHERE \`status\` = 1 AND \`id\` IN (?) ORDER BY \`weigh\` DESC, \`id\` ASC`,
+    `SELECT * FROM \`permission_rule\` WHERE \`status\` = 1 AND \`deleted\` = 0 AND \`id\` IN (?) ORDER BY \`weigh\` DESC, \`id\` ASC`,
     [ids],
   );
   return rows;
@@ -137,7 +137,7 @@ export async function getRulesByIds(ids: number[]): Promise<RuleRow[]> {
 export async function getAllEnabledRules(): Promise<RuleRow[]> {
   const pool = getPool();
   const [rows] = await pool.query<RuleRow[]>(
-    'SELECT * FROM `permission_rule` WHERE `status` = 1 ORDER BY `weigh` DESC, `id` ASC',
+    'SELECT * FROM `permission_rule` WHERE `status` = 1 AND `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
   );
   return rows;
 }
@@ -318,7 +318,7 @@ export async function sanitizeAssignRules(
 
   const pool = getPool();
   const [existing] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    `SELECT \`id\` FROM \`permission_rule\` WHERE \`id\` IN (?)`,
+    `SELECT \`id\` FROM \`permission_rule\` WHERE \`id\` IN (?) AND \`deleted\` = 0`,
     [ids.length > 0 ? ids : [0]],
   );
   const existingIds = new Set(existing.map((row) => row.id));

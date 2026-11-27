@@ -212,7 +212,7 @@ describe('SQL 裁剪条件', () => {
     expect(userScopeCondition(noDeptScope)).toEqual({ clause: '`id` = ?', params: [4] });
     expect(departmentScopeCondition(noDeptScope)).toEqual({ clause: '1 = 0', params: [] });
     expect(userScopeSubquery(noDeptScope)?.clause).toBe(
-      '`user_id` IN (SELECT `id` FROM `user` WHERE `id` = ?)',
+      '`user_id` IN (SELECT `id` FROM `user` WHERE `deleted` = 0 AND `id` = ?)',
     );
   });
 
@@ -226,7 +226,7 @@ describe('SQL 裁剪条件', () => {
   it('日志/角色成员用子查询圈账号', () => {
     expect(userScopeSubquery(techScope, 'operator_id')).toEqual({
       clause:
-        '`operator_id` IN (SELECT `id` FROM `user` WHERE (`department_id` IN (?) OR `id` = ?))',
+        '`operator_id` IN (SELECT `id` FROM `user` WHERE `deleted` = 0 AND (`department_id` IN (?) OR `id` = ?))',
       params: [[2, 3, 4], 2],
     });
   });

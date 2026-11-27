@@ -121,8 +121,8 @@ async function findProfileRow(adminId: number): Promise<ProfileRow> {
             u.\`status\`, u.\`password\`, u.\`last_login_time\`, u.\`last_login_ip\`, u.\`create_time\`,
             u.\`must_change_password\`
        FROM \`user\` u
-       LEFT JOIN \`department\` d ON d.\`id\` = u.\`department_id\`
-      WHERE u.\`id\` = ?
+       LEFT JOIN \`department\` d ON d.\`id\` = u.\`department_id\` AND d.\`deleted\` = 0
+      WHERE u.\`id\` = ? AND u.\`deleted\` = 0
       LIMIT 1`,
     [adminId],
   );
@@ -138,7 +138,7 @@ async function findProfileRoles(adminId: number): Promise<RoleRow[]> {
     `SELECT r.\`id\`, r.\`name\`, r.\`rules\`
        FROM \`role\` r
        INNER JOIN \`user_role\` ur ON ur.\`role_id\` = r.\`id\`
-      WHERE ur.\`user_id\` = ? AND r.\`status\` = 1
+      WHERE ur.\`user_id\` = ? AND r.\`status\` = 1 AND r.\`deleted\` = 0
       ORDER BY r.\`id\` ASC`,
     [adminId],
   );
@@ -206,7 +206,7 @@ export async function updateSelfContact(
   await assertOwnPassword(adminId, typeof input.password === 'string' ? input.password : '');
 
   const pool = getPool();
-  await pool.query(`UPDATE \`user\` SET \`${field}\` = ?, \`update_time\` = ? WHERE \`id\` = ?`, [
+  await pool.query(`UPDATE \`user\` SET \`${field}\` = ?, \`update_time\` = ? WHERE \`id\` = ? AND \`deleted\` = 0`, [
     value,
     nowSeconds(),
     adminId,
@@ -247,7 +247,7 @@ export async function changeSelfPassword(
 
   const pool = getPool();
   await pool.query(
-    'UPDATE `user` SET `password` = ?, `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ?',
+    'UPDATE `user` SET `password` = ?, `login_failure` = 0, `must_change_password` = 0, `update_time` = ? WHERE `id` = ? AND `deleted` = 0',
     [await hashPassword(newPassword), nowSeconds(), adminId],
   );
 

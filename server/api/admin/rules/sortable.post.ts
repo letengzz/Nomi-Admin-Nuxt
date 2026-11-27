@@ -29,7 +29,7 @@ export default defineAdminHandler('system/rule/sortable', async (event, context)
 
   const pool = getPool();
   for (const item of items) {
-    await pool.query('UPDATE `permission_rule` SET `weigh` = ? WHERE `id` = ?', [item.weigh, item.id]);
+    await pool.query('UPDATE `permission_rule` SET `weigh` = ? WHERE `id` = ? AND `deleted` = 0', [item.weigh, item.id]);
   }
   return ok({ updated: items.length });
 });

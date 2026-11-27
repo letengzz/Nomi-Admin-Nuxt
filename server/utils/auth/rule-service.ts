@@ -84,7 +84,7 @@ export async function normalizeRuleInput(
   // 同名节点会让 check() 无法区分是哪一个，唯一约束必须前置成可读的错误。
   const pool = getPool();
   const [duplicated] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `permission_rule` WHERE `name` = ? AND `id` <> ? LIMIT 1',
+    'SELECT `id` FROM `permission_rule` WHERE `name` = ? AND `id` <> ? AND `deleted` = 0 LIMIT 1',
     [name, options.id ?? 0],
   );
   if (duplicated.length > 0) throw new ApiError('该权限标识已被其他节点占用');
@@ -108,7 +108,10 @@ export async function normalizeRuleInput(
 
 export async function getRuleById(id: number): Promise<RuleRow | undefined> {
   const pool = getPool();
-  const [rows] = await pool.query<RuleRow[]>('SELECT * FROM `permission_rule` WHERE `id` = ? LIMIT 1', [id]);
+  const [rows] = await pool.query<RuleRow[]>(
+    'SELECT * FROM `permission_rule` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
+    [id],
+  );
   return rows[0];
 }
 
@@ -119,7 +122,7 @@ async function isDescendant(candidateId: number, ancestorId: number): Promise<bo
   for (let depth = 0; depth < 64 && cursor > 0; depth += 1) {
     if (cursor === ancestorId) return true;
     const [rows] = await pool.query<Array<{ pid: number } & RowDataPacket>>(
-      'SELECT `pid` FROM `permission_rule` WHERE `id` = ? LIMIT 1',
+      'SELECT `pid` FROM `permission_rule` WHERE `id` = ? AND `deleted` = 0 LIMIT 1',
       [cursor],
     );
     const pid = rows[0]?.pid;
@@ -161,7 +164,7 @@ export async function createRule(input: RuleInput): Promise<number> {
   // autoAssignPermission：拥有父节点的角色自动获得新节点（超管角色是 '*'，不用动）
   if (input.pid > 0) {
     await pool.query(
-      'UPDATE `role` SET `rules` = CONCAT(`rules`, \',\', ?), `update_time` = ? WHERE `rules` <> \'*\' AND FIND_IN_SET(?, `rules`)',
+      'UPDATE `role` SET `rules` = CONCAT(`rules`, \',\', ?), `update_time` = ? WHERE `deleted` = 0 AND `rules` <> \'*\' AND FIND_IN_SET(?, `rules`)',
       [id, ts, input.pid],
     );
   }
@@ -172,7 +175,7 @@ export async function createRule(input: RuleInput): Promise<number> {
 export async function updateRule(id: number, input: RuleInput): Promise<void> {
   const pool = getPool();
   await pool.query(
-    `UPDATE \`permission_rule\` SET \`pid\`=?,\`type\`=?,\`title\`=?,\`name\`=?,\`path\`=?,\`icon\`=?,\`menu_type\`=?,\`url\`=?,\`component\`=?,\`keepalive\`=?,\`remark\`=?,\`weigh\`=?,\`status\`=?,\`update_time\`=? WHERE \`id\`=?`,
+    `UPDATE \`permission_rule\` SET \`pid\`=?,\`type\`=?,\`title\`=?,\`name\`=?,\`path\`=?,\`icon\`=?,\`menu_type\`=?,\`url\`=?,\`component\`=?,\`keepalive\`=?,\`remark\`=?,\`weigh\`=?,\`status\`=?,\`update_time\`=? WHERE \`id\`=? AND \`deleted\`=0`,
     [
       input.pid,
       input.type,
@@ -200,12 +203,15 @@ export async function updateRule(id: number, input: RuleInput): Promise<void> {
 export async function deleteRule(id: number): Promise<void> {
   const pool = getPool();
   const [children] = await pool.query<Array<{ id: number } & RowDataPacket>>(
-    'SELECT `id` FROM `permission_rule` WHERE `pid` = ? LIMIT 1',
+    'SELECT `id` FROM `permission_rule` WHERE `pid` = ? AND `deleted` = 0 LIMIT 1',
     [id],
   );
   if (children.length > 0) throw new ApiError('该节点下还有子节点，请先删除子节点');
 
-  await pool.query('DELETE FROM `permission_rule` WHERE `id` = ?', [id]);
+  await pool.query(
+    'UPDATE `permission_rule` SET `deleted`=`id`,`update_time`=? WHERE `id` = ? AND `deleted` = 0',
+    [nowSeconds(), id],
+  );
   await stripRuleIdsFromRoles([id]);
 }
 

@@ -423,7 +423,7 @@ export async function prepareUserImport(
 
   const [departments, roleRows, userRows] = await Promise.all([
     pool.query<DepartmentLookupRow[]>(
-      'SELECT `id`,`pid`,`name`,`status` FROM `department` ORDER BY `weigh` DESC, `id` ASC',
+      'SELECT `id`,`pid`,`name`,`status` FROM `department` WHERE `deleted` = 0 ORDER BY `weigh` DESC, `id` ASC',
     ).then(([rows]) => rows),
     listRoleRows(),
     loadExistingUsers(pool, usernames, emails, mobiles),
@@ -649,7 +649,7 @@ async function loadExistingUsers(
   emails: readonly string[],
   mobiles: readonly string[],
 ): Promise<UserLookupRow[]> {
-  const select = 'SELECT `id`,`username`,`email`,`mobile`,`department_id` FROM `user` WHERE ';
+  const select = 'SELECT `id`,`username`,`email`,`mobile`,`department_id` FROM `user` WHERE `deleted` = 0 AND ';
   const tasks: Array<Promise<void>> = [];
   const merged = new Map<number, UserLookupRow>();
 
@@ -861,7 +861,7 @@ async function updateImportedUser(
     sql += '`password`=?,`login_failure`=0,';
     params.push(hashes.get(row.password) ?? '');
   }
-  sql += '`update_time`=? WHERE `id`=?';
+  sql += '`update_time`=? WHERE `id`=? AND `deleted` = 0';
   params.push(nowSeconds(), row.existingId);
 
   await connection.query(sql, params);
