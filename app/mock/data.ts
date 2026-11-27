@@ -675,18 +675,24 @@ export function buildProfile(user: UserItem | undefined): SelfProfile {
 
 // --- 汇总 ------------------------------------------------------------------
 
+/**
+ * 演示内存表与服务端一致采用逻辑删除：`deleted = 0` / 未设置为有效，
+ * 删除时写入该行 id。它只存在于演示内存数据里，不属于对外接口返回结构。
+ */
+export type SoftDeletable<T> = T & { deleted?: number };
+
 export interface DemoState {
-  rules: AdminRule[];
-  roles: RoleItem[];
-  departments: DepartmentItem[];
-  users: UserItem[];
-  notices: NoticeItem[];
+  rules: Array<SoftDeletable<AdminRule>>;
+  roles: Array<SoftDeletable<RoleItem>>;
+  departments: Array<SoftDeletable<DepartmentItem>>;
+  users: Array<SoftDeletable<UserItem>>;
+  notices: Array<SoftDeletable<NoticeItem>>;
   logs: AdminLogItem[];
   loginLogs: LoginLogItem[];
   operationLogs: OperationLogItem[];
   sessions: OnlineSession[];
-  languages: LanguageItem[];
-  entries: LanguageEntryItem[];
+  languages: Array<SoftDeletable<LanguageItem>>;
+  entries: Array<SoftDeletable<LanguageEntryItem>>;
   config: SystemConfig;
   profile: SelfProfile;
   /** 当前登录账号名；登录接口写它，init / profile 读它。 */
